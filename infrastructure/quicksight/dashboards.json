@@ -1,0 +1,430 @@
+{
+  "dashboards": [
+    {
+      "id": "baseline-evaluation",
+      "name": "Baseline Evaluation Dashboard",
+      "description": "Trust score distribution, latency histograms, and sample outputs for baseline model evaluation",
+      "dataset": "baseline-evaluation",
+      "visuals": [
+        {
+          "id": "trust-score-distribution",
+          "type": "histogram",
+          "title": "Trust Score Distribution",
+          "field": "trust_score",
+          "bins": 20,
+          "xAxis": "Trust Score",
+          "yAxis": "Count"
+        },
+        {
+          "id": "trust-score-by-category",
+          "type": "bar",
+          "title": "Mean Trust Score by Category",
+          "xAxis": "category",
+          "yAxis": "trust_score",
+          "aggregation": "average"
+        },
+        {
+          "id": "latency-histogram",
+          "type": "histogram",
+          "title": "Response Latency Distribution",
+          "field": "latency_ms",
+          "bins": 20,
+          "xAxis": "Latency (ms)",
+          "yAxis": "Count"
+        },
+        {
+          "id": "trust-score-over-time",
+          "type": "line",
+          "title": "Trust Score Trend Over Time",
+          "xAxis": "date",
+          "yAxis": "trust_score",
+          "aggregation": "average"
+        },
+        {
+          "id": "trust-score-category-pie",
+          "type": "pie",
+          "title": "Trust Score Categories",
+          "field": "trust_score_category",
+          "values": ["High", "Medium", "Low"]
+        },
+        {
+          "id": "sample-outputs-table",
+          "type": "table",
+          "title": "Sample Evaluation Results",
+          "columns": [
+            "example_id",
+            "trust_score",
+            "hallucination_rate",
+            "latency_ms",
+            "cost",
+            "passed"
+          ],
+          "sortBy": "trust_score",
+          "sortOrder": "desc",
+          "limit": 50
+        },
+        {
+          "id": "kpi-mean-trust-score",
+          "type": "kpi",
+          "title": "Mean Trust Score",
+          "field": "trust_score",
+          "aggregation": "average",
+          "format": "0.000"
+        },
+        {
+          "id": "kpi-p95-latency",
+          "type": "kpi",
+          "title": "P95 Latency",
+          "field": "latency_ms",
+          "aggregation": "percentile",
+          "percentile": 95,
+          "format": "0.0",
+          "suffix": "ms"
+        },
+        {
+          "id": "kpi-total-cost",
+          "type": "kpi",
+          "title": "Total Cost",
+          "field": "cost",
+          "aggregation": "sum",
+          "format": "$0.00"
+        }
+      ],
+      "filters": [
+        {
+          "field": "model_id",
+          "type": "dropdown"
+        },
+        {
+          "field": "date",
+          "type": "date-range"
+        },
+        {
+          "field": "category",
+          "type": "multi-select"
+        }
+      ]
+    },
+    {
+      "id": "comparative-evaluation",
+      "name": "Comparative Evaluation Dashboard",
+      "description": "Side-by-side metrics, improvement percentages, and statistical significance indicators",
+      "dataset": "comparative-evaluation",
+      "visuals": [
+        {
+          "id": "trust-score-improvement",
+          "type": "bar",
+          "title": "Trust Score Improvement",
+          "xAxis": "finetuned_model_id",
+          "yAxis": "trust_score_improvement",
+          "color": "improvement_category"
+        },
+        {
+          "id": "hallucination-reduction",
+          "type": "bar",
+          "title": "Hallucination Rate Reduction",
+          "xAxis": "finetuned_model_id",
+          "yAxis": "hallucination_reduction",
+          "format": "0.0%"
+        },
+        {
+          "id": "cost-delta",
+          "type": "bar",
+          "title": "Cost Delta per Query",
+          "xAxis": "finetuned_model_id",
+          "yAxis": "cost_delta_per_query",
+          "format": "$0.0000"
+        },
+        {
+          "id": "latency-delta",
+          "type": "bar",
+          "title": "Latency Delta",
+          "xAxis": "finetuned_model_id",
+          "yAxis": "latency_delta_ms",
+          "format": "0.0",
+          "suffix": "ms"
+        },
+        {
+          "id": "improvement-over-time",
+          "type": "line",
+          "title": "Trust Score Improvement Trend",
+          "xAxis": "date",
+          "yAxis": "trust_score_improvement",
+          "aggregation": "average"
+        },
+        {
+          "id": "statistical-significance",
+          "type": "pie",
+          "title": "Statistical Significance",
+          "field": "statistical_significance",
+          "values": [true, false],
+          "labels": ["Significant", "Not Significant"]
+        },
+        {
+          "id": "recommendation-distribution",
+          "type": "pie",
+          "title": "Recommendations",
+          "field": "recommendation",
+          "values": ["deploy", "iterate", "reject"]
+        },
+        {
+          "id": "comparison-table",
+          "type": "table",
+          "title": "Detailed Comparison Results",
+          "columns": [
+            "baseline_model_id",
+            "finetuned_model_id",
+            "trust_score_improvement",
+            "hallucination_reduction",
+            "cost_delta_percentage",
+            "statistical_significance",
+            "recommendation"
+          ],
+          "sortBy": "trust_score_improvement",
+          "sortOrder": "desc"
+        },
+        {
+          "id": "kpi-avg-improvement",
+          "type": "kpi",
+          "title": "Avg Trust Score Improvement",
+          "field": "trust_score_improvement",
+          "aggregation": "average",
+          "format": "+0.0%"
+        },
+        {
+          "id": "kpi-avg-hallucination-reduction",
+          "type": "kpi",
+          "title": "Avg Hallucination Reduction",
+          "field": "hallucination_reduction",
+          "aggregation": "average",
+          "format": "+0.0%"
+        }
+      ],
+      "filters": [
+        {
+          "field": "baseline_model_id",
+          "type": "dropdown"
+        },
+        {
+          "field": "finetuned_model_id",
+          "type": "dropdown"
+        },
+        {
+          "field": "date",
+          "type": "date-range"
+        },
+        {
+          "field": "recommendation",
+          "type": "multi-select"
+        }
+      ]
+    },
+    {
+      "id": "cost-analysis",
+      "name": "Cost Analysis Dashboard",
+      "description": "Cost trends, cost breakdowns by model, and cost-performance curves",
+      "dataset": "cost-analysis",
+      "visuals": [
+        {
+          "id": "cost-trend",
+          "type": "line",
+          "title": "Cost Trend Over Time",
+          "xAxis": "date",
+          "yAxis": "cost",
+          "aggregation": "sum",
+          "format": "$0.00"
+        },
+        {
+          "id": "cost-by-model",
+          "type": "bar",
+          "title": "Total Cost by Model",
+          "xAxis": "model_id",
+          "yAxis": "cost",
+          "aggregation": "sum",
+          "format": "$0.00"
+        },
+        {
+          "id": "cost-performance-curve",
+          "type": "scatter",
+          "title": "Cost-Performance Curve",
+          "xAxis": "cost",
+          "yAxis": "trust_score",
+          "size": "total_tokens",
+          "color": "model_id"
+        },
+        {
+          "id": "cost-efficiency",
+          "type": "bar",
+          "title": "Cost Efficiency Score by Model",
+          "xAxis": "model_id",
+          "yAxis": "cost_efficiency_score",
+          "aggregation": "average",
+          "format": "0.00"
+        },
+        {
+          "id": "token-usage",
+          "type": "stacked-bar",
+          "title": "Token Usage by Model",
+          "xAxis": "model_id",
+          "yAxis": ["input_tokens", "output_tokens"],
+          "aggregation": "sum"
+        },
+        {
+          "id": "cost-per-high-trust",
+          "type": "bar",
+          "title": "Cost per High-Trust Response",
+          "xAxis": "model_id",
+          "yAxis": "cost_per_high_trust_response",
+          "aggregation": "average",
+          "format": "$0.0000"
+        },
+        {
+          "id": "daily-cost-breakdown",
+          "type": "stacked-area",
+          "title": "Daily Cost Breakdown",
+          "xAxis": "date",
+          "yAxis": "cost",
+          "groupBy": "model_id",
+          "aggregation": "sum"
+        },
+        {
+          "id": "kpi-total-cost",
+          "type": "kpi",
+          "title": "Total Cost",
+          "field": "cost",
+          "aggregation": "sum",
+          "format": "$0.00"
+        },
+        {
+          "id": "kpi-avg-cost-per-query",
+          "type": "kpi",
+          "title": "Avg Cost per Query",
+          "field": "cost",
+          "aggregation": "average",
+          "format": "$0.0000"
+        },
+        {
+          "id": "kpi-cost-efficiency",
+          "type": "kpi",
+          "title": "Avg Cost Efficiency",
+          "field": "cost_efficiency_score",
+          "aggregation": "average",
+          "format": "0.00"
+        }
+      ],
+      "filters": [
+        {
+          "field": "model_id",
+          "type": "multi-select"
+        },
+        {
+          "field": "date",
+          "type": "date-range"
+        }
+      ]
+    },
+    {
+      "id": "hallucination-analysis",
+      "name": "Hallucination Analysis Dashboard",
+      "description": "Hallucination rates over time and by category",
+      "dataset": "hallucination-analysis",
+      "visuals": [
+        {
+          "id": "hallucination-rate-trend",
+          "type": "line",
+          "title": "Hallucination Rate Over Time",
+          "xAxis": "date",
+          "yAxis": "hallucination_rate",
+          "aggregation": "average",
+          "format": "0.0%"
+        },
+        {
+          "id": "hallucination-by-category",
+          "type": "bar",
+          "title": "Hallucination Rate by Category",
+          "xAxis": "category",
+          "yAxis": "hallucination_rate",
+          "aggregation": "average",
+          "format": "0.0%"
+        },
+        {
+          "id": "hallucination-by-model",
+          "type": "bar",
+          "title": "Hallucination Rate by Model",
+          "xAxis": "model_id",
+          "yAxis": "hallucination_rate",
+          "aggregation": "average",
+          "format": "0.0%"
+        },
+        {
+          "id": "hallucination-severity-distribution",
+          "type": "pie",
+          "title": "Hallucination Severity Distribution",
+          "field": "hallucination_severity",
+          "values": ["High", "Medium", "Low"]
+        },
+        {
+          "id": "hallucination-vs-trust-score",
+          "type": "scatter",
+          "title": "Hallucination Rate vs Trust Score",
+          "xAxis": "hallucination_rate",
+          "yAxis": "trust_score",
+          "color": "model_id"
+        },
+        {
+          "id": "hallucination-heatmap",
+          "type": "heatmap",
+          "title": "Hallucination Rate Heatmap",
+          "xAxis": "date",
+          "yAxis": "category",
+          "value": "hallucination_rate",
+          "aggregation": "average"
+        },
+        {
+          "id": "model-comparison",
+          "type": "grouped-bar",
+          "title": "Model Comparison by Category",
+          "xAxis": "category",
+          "yAxis": "hallucination_rate",
+          "groupBy": "model_id",
+          "aggregation": "average",
+          "format": "0.0%"
+        },
+        {
+          "id": "kpi-avg-hallucination-rate",
+          "type": "kpi",
+          "title": "Avg Hallucination Rate",
+          "field": "hallucination_rate",
+          "aggregation": "average",
+          "format": "0.0%"
+        },
+        {
+          "id": "kpi-high-severity-count",
+          "type": "kpi",
+          "title": "High Severity Count",
+          "field": "hallucination_severity",
+          "filter": "High",
+          "aggregation": "count"
+        }
+      ],
+      "filters": [
+        {
+          "field": "model_id",
+          "type": "multi-select"
+        },
+        {
+          "field": "category",
+          "type": "multi-select"
+        },
+        {
+          "field": "date",
+          "type": "date-range"
+        },
+        {
+          "field": "hallucination_severity",
+          "type": "multi-select"
+        }
+      ]
+    }
+  ]
+}

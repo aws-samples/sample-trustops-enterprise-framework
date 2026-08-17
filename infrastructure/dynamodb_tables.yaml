@@ -1,0 +1,245 @@
+# DynamoDB Table Schemas for TrustOps Enterprise Framework
+# Requirements: 9.3
+#
+# Tables:
+#   - trustops-evaluation-results: Evaluation results metadata
+#   - trustops-models: Model registry metadata
+#   - trustops-dataset-metadata: Dataset metadata
+#   - trustops-evaluations: Evaluation run metadata
+#   - trustops-fine-tuning-jobs: Fine-tuning job metadata
+#   - trustops-workflows: Workflow execution metadata
+#   - trustops-access-logs: Audit access logs
+
+tables:
+  - table_name: trustops-evaluation-results
+    description: "Stores metadata for all evaluation results and artifacts"
+    key_schema:
+      - attribute_name: result_id
+        key_type: HASH
+    attribute_definitions:
+      - attribute_name: result_id
+        attribute_type: S
+      - attribute_name: result_type
+        attribute_type: S
+      - attribute_name: model_id
+        attribute_type: S
+      - attribute_name: workflow_id
+        attribute_type: S
+      - attribute_name: created_at
+        attribute_type: S
+    global_secondary_indexes:
+      - index_name: result-type-index
+        key_schema:
+          - attribute_name: result_type
+            key_type: HASH
+          - attribute_name: created_at
+            key_type: RANGE
+        projection:
+          projection_type: ALL
+      - index_name: model-id-index
+        key_schema:
+          - attribute_name: model_id
+            key_type: HASH
+          - attribute_name: created_at
+            key_type: RANGE
+        projection:
+          projection_type: ALL
+      - index_name: workflow-id-index
+        key_schema:
+          - attribute_name: workflow_id
+            key_type: HASH
+          - attribute_name: created_at
+            key_type: RANGE
+        projection:
+          projection_type: ALL
+    billing_mode: PAY_PER_REQUEST
+
+  - table_name: trustops-models
+    description: "Stores model registry metadata"
+    key_schema:
+      - attribute_name: model_id
+        key_type: HASH
+    attribute_definitions:
+      - attribute_name: model_id
+        attribute_type: S
+      - attribute_name: provider
+        attribute_type: S
+      - attribute_name: status
+        attribute_type: S
+    global_secondary_indexes:
+      - index_name: provider-index
+        key_schema:
+          - attribute_name: provider
+            key_type: HASH
+          - attribute_name: model_id
+            key_type: RANGE
+        projection:
+          projection_type: ALL
+      - index_name: status-index
+        key_schema:
+          - attribute_name: status
+            key_type: HASH
+          - attribute_name: model_id
+            key_type: RANGE
+        projection:
+          projection_type: ALL
+    billing_mode: PAY_PER_REQUEST
+
+  - table_name: trustops-dataset-metadata
+    description: "Stores dataset metadata and version history"
+    key_schema:
+      - attribute_name: dataset_id
+        key_type: HASH
+      - attribute_name: version
+        key_type: RANGE
+    attribute_definitions:
+      - attribute_name: dataset_id
+        attribute_type: S
+      - attribute_name: version
+        attribute_type: N
+      - attribute_name: task_type
+        attribute_type: S
+      - attribute_name: created_at
+        attribute_type: S
+    global_secondary_indexes:
+      - index_name: task-type-index
+        key_schema:
+          - attribute_name: task_type
+            key_type: HASH
+          - attribute_name: created_at
+            key_type: RANGE
+        projection:
+          projection_type: ALL
+    billing_mode: PAY_PER_REQUEST
+
+  - table_name: trustops-evaluations
+    description: "Stores evaluation run metadata and progress"
+    key_schema:
+      - attribute_name: evaluation_id
+        key_type: HASH
+    attribute_definitions:
+      - attribute_name: evaluation_id
+        attribute_type: S
+      - attribute_name: model_id
+        attribute_type: S
+      - attribute_name: created_at
+        attribute_type: S
+      - attribute_name: status
+        attribute_type: S
+    global_secondary_indexes:
+      - index_name: model-id-index
+        key_schema:
+          - attribute_name: model_id
+            key_type: HASH
+          - attribute_name: created_at
+            key_type: RANGE
+        projection:
+          projection_type: ALL
+      - index_name: status-index
+        key_schema:
+          - attribute_name: status
+            key_type: HASH
+          - attribute_name: created_at
+            key_type: RANGE
+        projection:
+          projection_type: ALL
+    billing_mode: PAY_PER_REQUEST
+
+  - table_name: trustops-fine-tuning-jobs
+    description: "Stores fine-tuning job metadata and training metrics"
+    key_schema:
+      - attribute_name: job_id
+        key_type: HASH
+    attribute_definitions:
+      - attribute_name: job_id
+        attribute_type: S
+      - attribute_name: base_model_id
+        attribute_type: S
+      - attribute_name: status
+        attribute_type: S
+      - attribute_name: created_at
+        attribute_type: S
+    global_secondary_indexes:
+      - index_name: base-model-index
+        key_schema:
+          - attribute_name: base_model_id
+            key_type: HASH
+          - attribute_name: created_at
+            key_type: RANGE
+        projection:
+          projection_type: ALL
+      - index_name: status-index
+        key_schema:
+          - attribute_name: status
+            key_type: HASH
+          - attribute_name: created_at
+            key_type: RANGE
+        projection:
+          projection_type: ALL
+    billing_mode: PAY_PER_REQUEST
+
+  - table_name: trustops-workflows
+    description: "Stores workflow execution metadata and manifests"
+    key_schema:
+      - attribute_name: workflow_id
+        key_type: HASH
+    attribute_definitions:
+      - attribute_name: workflow_id
+        attribute_type: S
+      - attribute_name: status
+        attribute_type: S
+      - attribute_name: created_by
+        attribute_type: S
+      - attribute_name: created_at
+        attribute_type: S
+    global_secondary_indexes:
+      - index_name: status-index
+        key_schema:
+          - attribute_name: status
+            key_type: HASH
+          - attribute_name: created_at
+            key_type: RANGE
+        projection:
+          projection_type: ALL
+      - index_name: created-by-index
+        key_schema:
+          - attribute_name: created_by
+            key_type: HASH
+          - attribute_name: created_at
+            key_type: RANGE
+        projection:
+          projection_type: ALL
+    billing_mode: PAY_PER_REQUEST
+
+  - table_name: trustops-access-logs
+    description: "Stores audit access logs for compliance"
+    key_schema:
+      - attribute_name: log_id
+        key_type: HASH
+    attribute_definitions:
+      - attribute_name: log_id
+        attribute_type: S
+      - attribute_name: result_id
+        attribute_type: S
+      - attribute_name: user_id
+        attribute_type: S
+      - attribute_name: timestamp
+        attribute_type: S
+    global_secondary_indexes:
+      - index_name: result-id-index
+        key_schema:
+          - attribute_name: result_id
+            key_type: HASH
+          - attribute_name: timestamp
+            key_type: RANGE
+        projection:
+          projection_type: ALL
+      - index_name: user-id-index
+        key_schema:
+          - attribute_name: user_id
+            key_type: HASH
+          - attribute_name: timestamp
+            key_type: RANGE
+        projection:
+          projection_type: ALL
+    billing_mode: PAY_PER_REQUEST

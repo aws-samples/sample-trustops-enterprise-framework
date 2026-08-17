@@ -1,0 +1,271 @@
+# Model Pricing Configuration
+# Prices are per 1,000 tokens in USD
+# Last updated: 2024
+# Source: AWS Bedrock Pricing Documentation
+
+# AWS Bedrock Models
+bedrock:
+  # Anthropic Claude Models
+  anthropic.claude-3-5-sonnet-20241022-v2:0:
+    input_price_per_1k_tokens: 0.003
+    output_price_per_1k_tokens: 0.015
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  anthropic.claude-3-5-sonnet-20240620-v1:0:
+    input_price_per_1k_tokens: 0.003
+    output_price_per_1k_tokens: 0.015
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  anthropic.claude-3-opus-20240229-v1:0:
+    input_price_per_1k_tokens: 0.015
+    output_price_per_1k_tokens: 0.075
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  anthropic.claude-3-sonnet-20240229-v1:0:
+    input_price_per_1k_tokens: 0.003
+    output_price_per_1k_tokens: 0.015
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  anthropic.claude-3-haiku-20240307-v1:0:
+    input_price_per_1k_tokens: 0.00025
+    output_price_per_1k_tokens: 0.00125
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  anthropic.claude-v2:1:
+    input_price_per_1k_tokens: 0.008
+    output_price_per_1k_tokens: 0.024
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  anthropic.claude-v2:
+    input_price_per_1k_tokens: 0.008
+    output_price_per_1k_tokens: 0.024
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  anthropic.claude-instant-v1:
+    input_price_per_1k_tokens: 0.0008
+    output_price_per_1k_tokens: 0.0024
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+
+  # Amazon Titan Models
+  amazon.titan-text-premier-v1:0:
+    input_price_per_1k_tokens: 0.0005
+    output_price_per_1k_tokens: 0.0015
+    fine_tuning_price_per_1k_tokens: 0.008
+    currency: USD
+    
+  amazon.titan-text-express-v1:
+    input_price_per_1k_tokens: 0.0002
+    output_price_per_1k_tokens: 0.0006
+    fine_tuning_price_per_1k_tokens: 0.008
+    currency: USD
+    
+  amazon.titan-text-lite-v1:
+    input_price_per_1k_tokens: 0.00015
+    output_price_per_1k_tokens: 0.0002
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  amazon.titan-embed-text-v2:0:
+    input_price_per_1k_tokens: 0.0001
+    output_price_per_1k_tokens: 0.0
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  amazon.titan-embed-text-v1:
+    input_price_per_1k_tokens: 0.0001
+    output_price_per_1k_tokens: 0.0
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+
+  # Meta Llama Models
+  meta.llama3-1-405b-instruct-v1:0:
+    input_price_per_1k_tokens: 0.00532
+    output_price_per_1k_tokens: 0.016
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  meta.llama3-1-70b-instruct-v1:0:
+    input_price_per_1k_tokens: 0.00099
+    output_price_per_1k_tokens: 0.00099
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  meta.llama3-1-8b-instruct-v1:0:
+    input_price_per_1k_tokens: 0.00022
+    output_price_per_1k_tokens: 0.00022
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  meta.llama3-70b-instruct-v1:0:
+    input_price_per_1k_tokens: 0.00265
+    output_price_per_1k_tokens: 0.0035
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  meta.llama3-8b-instruct-v1:0:
+    input_price_per_1k_tokens: 0.0004
+    output_price_per_1k_tokens: 0.0006
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  meta.llama2-13b-chat-v1:
+    input_price_per_1k_tokens: 0.00075
+    output_price_per_1k_tokens: 0.001
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  meta.llama2-70b-chat-v1:
+    input_price_per_1k_tokens: 0.00195
+    output_price_per_1k_tokens: 0.00256
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+
+  # Cohere Models
+  cohere.command-r-plus-v1:0:
+    input_price_per_1k_tokens: 0.003
+    output_price_per_1k_tokens: 0.015
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  cohere.command-r-v1:0:
+    input_price_per_1k_tokens: 0.0005
+    output_price_per_1k_tokens: 0.0015
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  cohere.command-text-v14:
+    input_price_per_1k_tokens: 0.0015
+    output_price_per_1k_tokens: 0.002
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  cohere.command-light-text-v14:
+    input_price_per_1k_tokens: 0.0003
+    output_price_per_1k_tokens: 0.0006
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  cohere.embed-english-v3:
+    input_price_per_1k_tokens: 0.0001
+    output_price_per_1k_tokens: 0.0
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  cohere.embed-multilingual-v3:
+    input_price_per_1k_tokens: 0.0001
+    output_price_per_1k_tokens: 0.0
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+
+  # AI21 Labs Models
+  ai21.jamba-1-5-large-v1:0:
+    input_price_per_1k_tokens: 0.002
+    output_price_per_1k_tokens: 0.008
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  ai21.jamba-1-5-mini-v1:0:
+    input_price_per_1k_tokens: 0.0002
+    output_price_per_1k_tokens: 0.0004
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  ai21.j2-ultra-v1:
+    input_price_per_1k_tokens: 0.0188
+    output_price_per_1k_tokens: 0.0188
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  ai21.j2-mid-v1:
+    input_price_per_1k_tokens: 0.0125
+    output_price_per_1k_tokens: 0.0125
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+
+  # Mistral AI Models
+  mistral.mistral-large-2407-v1:0:
+    input_price_per_1k_tokens: 0.003
+    output_price_per_1k_tokens: 0.009
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  mistral.mistral-large-2402-v1:0:
+    input_price_per_1k_tokens: 0.004
+    output_price_per_1k_tokens: 0.012
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  mistral.mistral-small-2402-v1:0:
+    input_price_per_1k_tokens: 0.001
+    output_price_per_1k_tokens: 0.003
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  mistral.mixtral-8x7b-instruct-v0:1:
+    input_price_per_1k_tokens: 0.00045
+    output_price_per_1k_tokens: 0.0007
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  mistral.mistral-7b-instruct-v0:2:
+    input_price_per_1k_tokens: 0.00015
+    output_price_per_1k_tokens: 0.0002
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+
+# External API Models (OpenAI-compatible)
+external_api:
+  # OpenAI Models
+  gpt-4-turbo:
+    input_price_per_1k_tokens: 0.01
+    output_price_per_1k_tokens: 0.03
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  gpt-4:
+    input_price_per_1k_tokens: 0.03
+    output_price_per_1k_tokens: 0.06
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  gpt-3.5-turbo:
+    input_price_per_1k_tokens: 0.0005
+    output_price_per_1k_tokens: 0.0015
+    fine_tuning_price_per_1k_tokens: 0.008
+    currency: USD
+    
+  text-embedding-3-large:
+    input_price_per_1k_tokens: 0.00013
+    output_price_per_1k_tokens: 0.0
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+    
+  text-embedding-3-small:
+    input_price_per_1k_tokens: 0.00002
+    output_price_per_1k_tokens: 0.0
+    fine_tuning_price_per_1k_tokens: null
+    currency: USD
+
+# SageMaker Models (default pricing - actual costs vary by instance type)
+sagemaker:
+  default:
+    input_price_per_1k_tokens: 0.001
+    output_price_per_1k_tokens: 0.002
+    fine_tuning_price_per_1k_tokens: 0.005
+    currency: USD
+    note: "SageMaker pricing varies by instance type and deployment configuration"
+
+# Default fallback pricing for unknown models
+default:
+  input_price_per_1k_tokens: 0.001
+  output_price_per_1k_tokens: 0.002
+  fine_tuning_price_per_1k_tokens: null
+  currency: USD
