@@ -1,0 +1,1749 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'TrustOps AWS Demo Infrastructure'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: trustops
+    Description: Project name for resource naming
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name
+
+  DeploymentId:
+    Type: String
+    Description: Short unique suffix to avoid resource name collisions
+
+  AlertEmail:
+    Type: String
+    Default: ''
+    Description: Email address for alarm notifications (leave empty to skip)
+
+  LogRetentionDays:
+    Type: Number
+    Default: 365
+    AllowedValues: [365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+    Description: >-
+      CloudWatch log retention in days for non-production environments
+      (365 minimum for audit compliance). Production always retains 3 years.
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, 'prod']
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
+
+Resources:
+  # KMS Key for encryption
+  TrustOpsKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub 'KMS key for TrustOps ${Environment} encryption'
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnableRootAccountAccess
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          # CloudWatch Logs needs key access to encrypt log group data.
+          - Sid: AllowCloudWatchLogsEncryption
+            Effect: Allow
+            Principal:
+              Service: !Sub 'logs.${AWS::Region}.amazonaws.com'
+            Action:
+              - 'kms:Encrypt*'
+              - 'kms:Decrypt*'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:Describe*'
+            Resource: '*'
+            Condition:
+              ArnLike:
+                'kms:EncryptionContext:aws:logs:arn': !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+          # Services that encrypt TrustOps data at rest on the account's behalf.
+          - Sid: AllowServiceUseViaGrants
+            Effect: Allow
+            Principal:
+              Service:
+                - s3.amazonaws.com
+                - sns.amazonaws.com
+                - sqs.amazonaws.com
+                - dynamodb.amazonaws.com
+                - lambda.amazonaws.com
+                - states.amazonaws.com
+            Action:
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:DescribeKey'
+              - 'kms:CreateGrant'
+            Resource: '*'
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref 'AWS::AccountId'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  TrustOpsKmsKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 'alias/${ProjectName}-${Environment}-${DeploymentId}'
+      TargetKeyId: !Ref TrustOpsKmsKey
+
+  # SNS Topic for Alarm Notifications
+  AlarmNotificationTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasAlertEmail
+    Properties:
+      TopicName: !Sub '${ProjectName}-alarms-${Environment}-${DeploymentId}'
+      KmsMasterKeyId: !Ref TrustOpsKmsKey
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  AlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlarmNotificationTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # Dead Letter Queue for failed Lambda invocations
+  LambdaDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-lambda-dlq-${Environment}-${DeploymentId}'
+      MessageRetentionPeriod: 1209600
+      KmsMasterKeyId: !Ref TrustOpsKmsKey
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+  # S3 Buckets
+  DatasetsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-datasets-${Environment}-${DeploymentId}-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Ref TrustOpsKmsKey
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ArchiveOldVersions
+            Status: Enabled
+            NoncurrentVersionTransitions:
+              - TransitionInDays: 90
+                StorageClass: GLACIER
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AccessLogsBucket
+        LogFilePrefix: datasets/
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ResultsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-results-${Environment}-${DeploymentId}-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Ref TrustOpsKmsKey
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ArchiveOldResults
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 180
+                StorageClass: GLACIER
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AccessLogsBucket
+        LogFilePrefix: results/
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-artifacts-${Environment}-${DeploymentId}-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Ref TrustOpsKmsKey
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AccessLogsBucket
+        LogFilePrefix: artifacts/
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  AccessLogsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_18
+            comment: >-
+              This bucket is itself the server access log destination for the
+              datasets/results/artifacts buckets. Enabling logging on it would
+              create a recursive log loop.
+    Properties:
+      BucketName: !Sub '${ProjectName}-access-logs-${Environment}-${DeploymentId}-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          # BucketOwnerEnforced disables ACLs entirely.
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldLogs
+            Status: Enabled
+            ExpirationInDays: 90
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+            NoncurrentVersionExpirationInDays: 30
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Bucket policies. Every bucket denies any request that does not arrive over
+  # TLS, so data in transit cannot fall back to plaintext HTTP.
+  DatasetsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DatasetsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt DatasetsBucket.Arn
+              - !Sub '${DatasetsBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  ResultsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ResultsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt ResultsBucket.Arn
+              - !Sub '${ResultsBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  ArtifactsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt ArtifactsBucket.Arn
+              - !Sub '${ArtifactsBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  AccessLogsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AccessLogsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: S3ServerAccessLogsPolicy
+            Effect: Allow
+            Principal:
+              Service: logging.s3.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub '${AccessLogsBucket.Arn}/*'
+            Condition:
+              ArnLike:
+                aws:SourceArn:
+                  - !GetAtt DatasetsBucket.Arn
+                  - !GetAtt ResultsBucket.Arn
+                  - !GetAtt ArtifactsBucket.Arn
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+          # The deny is evaluated against the log-delivery PutObject above too;
+          # S3 server access log delivery uses TLS, so it is unaffected.
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt AccessLogsBucket.Arn
+              - !Sub '${AccessLogsBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  # DynamoDB Tables
+  WorkflowsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub '${ProjectName}-workflows-${Environment}-${DeploymentId}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: workflow_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+        - AttributeName: workflow_type
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: workflow_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: workflow-type-index
+          KeySchema:
+            - AttributeName: workflow_type
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: status-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref TrustOpsKmsKey
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ModelsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub '${ProjectName}-models-${Environment}-${DeploymentId}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: model_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: model_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: created-at-index
+          KeySchema:
+            - AttributeName: created_at
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref TrustOpsKmsKey
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  DatasetVersionsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub '${ProjectName}-dataset-versions-${Environment}-${DeploymentId}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: dataset_id
+          AttributeType: S
+        - AttributeName: version
+          AttributeType: N
+        - AttributeName: task_type
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: dataset_id
+          KeyType: HASH
+        - AttributeName: version
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: task-type-index
+          KeySchema:
+            - AttributeName: task_type
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref TrustOpsKmsKey
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  DatasetLineageTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub '${ProjectName}-dataset-lineage-${Environment}-${DeploymentId}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: lineage_id
+          AttributeType: S
+        - AttributeName: dataset_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: lineage_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: dataset-id-index
+          KeySchema:
+            - AttributeName: dataset_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref TrustOpsKmsKey
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ResultsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub '${ProjectName}-results-${Environment}-${DeploymentId}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: result_id
+          AttributeType: S
+        - AttributeName: result_type
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: result_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: result-type-index
+          KeySchema:
+            - AttributeName: result_type
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref TrustOpsKmsKey
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  EvaluationsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub '${ProjectName}-evaluations-${Environment}-${DeploymentId}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: evaluation_id
+          AttributeType: S
+        - AttributeName: model_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: evaluation_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: model-id-index
+          KeySchema:
+            - AttributeName: model_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref TrustOpsKmsKey
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  FineTuningJobsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub '${ProjectName}-fine-tuning-jobs-${Environment}-${DeploymentId}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: job_id
+          AttributeType: S
+        - AttributeName: base_model_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: job_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: base-model-index
+          KeySchema:
+            - AttributeName: base_model_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !Ref TrustOpsKmsKey
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # CloudWatch Log Groups
+  TrustOpsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/${ProjectName}/${Environment}/${DeploymentId}'
+      RetentionInDays: !If [IsProduction, 1096, !Ref LogRetentionDays]
+      KmsKeyId: !GetAtt TrustOpsKmsKey.Arn
+
+  EvaluationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/${ProjectName}/${Environment}/${DeploymentId}/evaluation'
+      RetentionInDays: !If [IsProduction, 1096, !Ref LogRetentionDays]
+      KmsKeyId: !GetAtt TrustOpsKmsKey.Arn
+
+  FineTuningLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/${ProjectName}/${Environment}/${DeploymentId}/finetuning'
+      RetentionInDays: !If [IsProduction, 1096, !Ref LogRetentionDays]
+      KmsKeyId: !GetAtt TrustOpsKmsKey.Arn
+
+  TrustScoringLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/${ProjectName}/${Environment}/${DeploymentId}/trustscoring'
+      RetentionInDays: !If [IsProduction, 1096, !Ref LogRetentionDays]
+      KmsKeyId: !GetAtt TrustOpsKmsKey.Arn
+
+  # IAM Roles for Lambda Functions
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-lambda-execution-${Environment}-${DeploymentId}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: TrustOpsLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # S3 permissions
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                  - s3:GetObjectVersion
+                Resource:
+                  - !GetAtt DatasetsBucket.Arn
+                  - !Sub '${DatasetsBucket.Arn}/*'
+                  - !GetAtt ResultsBucket.Arn
+                  - !Sub '${ResultsBucket.Arn}/*'
+                  - !GetAtt ArtifactsBucket.Arn
+                  - !Sub '${ArtifactsBucket.Arn}/*'
+              # DynamoDB permissions
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt WorkflowsTable.Arn
+                  - !Sub '${WorkflowsTable.Arn}/index/*'
+                  - !GetAtt ModelsTable.Arn
+                  - !Sub '${ModelsTable.Arn}/index/*'
+              # Bedrock permissions
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:GetFoundationModel
+                  - bedrock:ListFoundationModels
+                Resource:
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/*'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:custom-model/*'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:provisioned-model/*'
+              - Effect: Allow
+                Action:
+                  - bedrock:CreateModelCustomizationJob
+                  - bedrock:GetModelCustomizationJob
+                  - bedrock:ListModelCustomizationJobs
+                Resource:
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:model-customization-job/*'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/*'
+              # Bedrock Knowledge Base permissions
+              - Effect: Allow
+                Action:
+                  - bedrock:Retrieve
+                  - bedrock:RetrieveAndGenerate
+                Resource: !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*'
+              - Effect: Allow
+                Action:
+                  - bedrock:GetKnowledgeBase
+                  - bedrock:ListKnowledgeBases
+                  - bedrock:StartIngestionJob
+                  - bedrock:GetIngestionJob
+                Resource:
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*'
+              # S3 delete for knowledge base document management
+              - Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub '${DatasetsBucket.Arn}/knowledge-base/*'
+              # CloudWatch Logs permissions
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !GetAtt TrustOpsLogGroup.Arn
+                  - !Sub '${TrustOpsLogGroup.Arn}:*'
+                  - !GetAtt EvaluationLogGroup.Arn
+                  - !Sub '${EvaluationLogGroup.Arn}:*'
+                  - !GetAtt FineTuningLogGroup.Arn
+                  - !Sub '${FineTuningLogGroup.Arn}:*'
+                  - !GetAtt TrustScoringLogGroup.Arn
+                  - !Sub '${TrustScoringLogGroup.Arn}:*'
+              # X-Ray tracing permissions
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                  - xray:GetSamplingRules
+                  - xray:GetSamplingTargets
+                Resource: '*'
+              # DLQ permissions
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt LambdaDeadLetterQueue.Arn
+              # KMS permissions
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                  - kms:DescribeKey
+                Resource: !GetAtt TrustOpsKmsKey.Arn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Step Functions Execution Role
+  StepFunctionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-stepfunctions-${Environment}-${DeploymentId}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: TrustOpsStepFunctionsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Lambda invocation permissions
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-*'
+              # CloudWatch Logs permissions for Step Functions logging
+              # Note: Log delivery APIs are account-level and require Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogDelivery
+                  - logs:GetLogDelivery
+                  - logs:UpdateLogDelivery
+                  - logs:DeleteLogDelivery
+                  - logs:ListLogDeliveries
+                  - logs:PutResourcePolicy
+                  - logs:DescribeResourcePolicies
+                  - logs:DescribeLogGroups
+                Resource: '*'
+              # X-Ray tracing
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                  - xray:GetSamplingRules
+                  - xray:GetSamplingTargets
+                Resource: '*'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Bedrock Knowledge Base
+  KnowledgeBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-kb-role-${Environment}-${DeploymentId}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: KnowledgeBasePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt DatasetsBucket.Arn
+                  - !Sub '${DatasetsBucket.Arn}/knowledge-base/*'
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                Resource: !GetAtt TrustOpsKmsKey.Arn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda Functions
+  EvaluationOrchestratorFunction:
+    Type: AWS::Lambda::Function
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_117
+            comment: >-
+              TrustOps Lambdas only call public AWS API endpoints (Bedrock, S3,
+              DynamoDB, Step Functions) and expose no inbound network surface.
+              VPC attachment would require NAT/VPC endpoints for no isolation gain.
+          - id: CKV_AWS_272
+            comment: >-
+              Code-signing requires an AWS Signer profile and a signed artifact
+              pipeline; deployment packages are integrity-checked via S3
+              versioning and SHA256 checksums instead.
+    Properties:
+      FunctionName: !Sub '${ProjectName}-evaluation-orchestrator-${Environment}-${DeploymentId}'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      KmsKeyArn: !GetAtt TrustOpsKmsKey.Arn
+      Architectures:
+        - arm64
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {"statusCode": 200, "body": "placeholder - update via deploy script"}
+      Timeout: 900
+      MemorySize: 1024
+      ReservedConcurrentExecutions: 10
+      DeadLetterConfig:
+        TargetArn: !GetAtt LambdaDeadLetterQueue.Arn
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          DATASETS_BUCKET: !Ref DatasetsBucket
+          RESULTS_BUCKET: !Ref ResultsBucket
+          WORKFLOWS_TABLE: !Ref WorkflowsTable
+          MODELS_TABLE: !Ref ModelsTable
+          KNOWLEDGE_BASE_ID: !Sub '${ProjectName}-kb-${Environment}-${DeploymentId}'
+          LOG_LEVEL: INFO
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  FineTuningOrchestratorFunction:
+    Type: AWS::Lambda::Function
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_117
+            comment: >-
+              TrustOps Lambdas only call public AWS API endpoints (Bedrock, S3,
+              DynamoDB, Step Functions) and expose no inbound network surface.
+              VPC attachment would require NAT/VPC endpoints for no isolation gain.
+          - id: CKV_AWS_272
+            comment: >-
+              Code-signing requires an AWS Signer profile and a signed artifact
+              pipeline; deployment packages are integrity-checked via S3
+              versioning and SHA256 checksums instead.
+    Properties:
+      FunctionName: !Sub '${ProjectName}-finetuning-orchestrator-${Environment}-${DeploymentId}'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      KmsKeyArn: !GetAtt TrustOpsKmsKey.Arn
+      Architectures:
+        - arm64
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {"statusCode": 200, "body": "placeholder - update via deploy script"}
+      Timeout: 900
+      MemorySize: 512
+      ReservedConcurrentExecutions: 5
+      DeadLetterConfig:
+        TargetArn: !GetAtt LambdaDeadLetterQueue.Arn
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          DATASETS_BUCKET: !Ref DatasetsBucket
+          RESULTS_BUCKET: !Ref ResultsBucket
+          WORKFLOWS_TABLE: !Ref WorkflowsTable
+          MODELS_TABLE: !Ref ModelsTable
+          LOG_LEVEL: INFO
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  TrustScoringFunction:
+    Type: AWS::Lambda::Function
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_117
+            comment: >-
+              TrustOps Lambdas only call public AWS API endpoints (Bedrock, S3,
+              DynamoDB, Step Functions) and expose no inbound network surface.
+              VPC attachment would require NAT/VPC endpoints for no isolation gain.
+          - id: CKV_AWS_272
+            comment: >-
+              Code-signing requires an AWS Signer profile and a signed artifact
+              pipeline; deployment packages are integrity-checked via S3
+              versioning and SHA256 checksums instead.
+    Properties:
+      FunctionName: !Sub '${ProjectName}-trust-scoring-${Environment}-${DeploymentId}'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      KmsKeyArn: !GetAtt TrustOpsKmsKey.Arn
+      Architectures:
+        - arm64
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {"statusCode": 200, "body": "placeholder - update via deploy script"}
+      Timeout: 300
+      MemorySize: 512
+      ReservedConcurrentExecutions: 10
+      DeadLetterConfig:
+        TargetArn: !GetAtt LambdaDeadLetterQueue.Arn
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          KNOWLEDGE_BASE_ID: !Sub '${ProjectName}-kb-${Environment}-${DeploymentId}'
+          TRUST_SCORE_THRESHOLD: '0.7'
+          LOG_LEVEL: INFO
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ComparativeEvaluationFunction:
+    Type: AWS::Lambda::Function
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_117
+            comment: >-
+              TrustOps Lambdas only call public AWS API endpoints (Bedrock, S3,
+              DynamoDB, Step Functions) and expose no inbound network surface.
+              VPC attachment would require NAT/VPC endpoints for no isolation gain.
+          - id: CKV_AWS_272
+            comment: >-
+              Code-signing requires an AWS Signer profile and a signed artifact
+              pipeline; deployment packages are integrity-checked via S3
+              versioning and SHA256 checksums instead.
+    Properties:
+      FunctionName: !Sub '${ProjectName}-comparative-evaluation-${Environment}-${DeploymentId}'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      KmsKeyArn: !GetAtt TrustOpsKmsKey.Arn
+      Architectures:
+        - arm64
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {"statusCode": 200, "body": "placeholder - update via deploy script"}
+      Timeout: 900
+      MemorySize: 1024
+      ReservedConcurrentExecutions: 10
+      DeadLetterConfig:
+        TargetArn: !GetAtt LambdaDeadLetterQueue.Arn
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          DATASETS_BUCKET: !Ref DatasetsBucket
+          RESULTS_BUCKET: !Ref ResultsBucket
+          WORKFLOWS_TABLE: !Ref WorkflowsTable
+          MODELS_TABLE: !Ref ModelsTable
+          KNOWLEDGE_BASE_ID: !Sub '${ProjectName}-kb-${Environment}-${DeploymentId}'
+          LOG_LEVEL: INFO
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Granular Lambda Handlers for Step Functions Orchestration
+  EvaluateSingleExampleFunction:
+    Type: AWS::Lambda::Function
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_117
+            comment: >-
+              TrustOps Lambdas only call public AWS API endpoints (Bedrock, S3,
+              DynamoDB, Step Functions) and expose no inbound network surface.
+              VPC attachment would require NAT/VPC endpoints for no isolation gain.
+          - id: CKV_AWS_272
+            comment: >-
+              Code-signing requires an AWS Signer profile and a signed artifact
+              pipeline; deployment packages are integrity-checked via S3
+              versioning and SHA256 checksums instead.
+    Properties:
+      FunctionName: !Sub '${ProjectName}-evaluate-single-example-${Environment}-${DeploymentId}'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      KmsKeyArn: !GetAtt TrustOpsKmsKey.Arn
+      Architectures:
+        - arm64
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {"statusCode": 200, "body": "placeholder - update via deploy script"}
+      Timeout: 300
+      MemorySize: 512
+      ReservedConcurrentExecutions: 20
+      DeadLetterConfig:
+        TargetArn: !GetAtt LambdaDeadLetterQueue.Arn
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          DATASETS_BUCKET: !Ref DatasetsBucket
+          RESULTS_BUCKET: !Ref ResultsBucket
+          WORKFLOWS_TABLE: !Ref WorkflowsTable
+          LOG_LEVEL: INFO
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  AggregateMetricsFunction:
+    Type: AWS::Lambda::Function
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_117
+            comment: >-
+              TrustOps Lambdas only call public AWS API endpoints (Bedrock, S3,
+              DynamoDB, Step Functions) and expose no inbound network surface.
+              VPC attachment would require NAT/VPC endpoints for no isolation gain.
+          - id: CKV_AWS_272
+            comment: >-
+              Code-signing requires an AWS Signer profile and a signed artifact
+              pipeline; deployment packages are integrity-checked via S3
+              versioning and SHA256 checksums instead.
+    Properties:
+      FunctionName: !Sub '${ProjectName}-aggregate-metrics-${Environment}-${DeploymentId}'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      KmsKeyArn: !GetAtt TrustOpsKmsKey.Arn
+      Architectures:
+        - arm64
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {"statusCode": 200, "body": "placeholder - update via deploy script"}
+      Timeout: 300
+      MemorySize: 512
+      ReservedConcurrentExecutions: 5
+      DeadLetterConfig:
+        TargetArn: !GetAtt LambdaDeadLetterQueue.Arn
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          RESULTS_BUCKET: !Ref ResultsBucket
+          WORKFLOWS_TABLE: !Ref WorkflowsTable
+          LOG_LEVEL: INFO
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  GenerateRecommendationFunction:
+    Type: AWS::Lambda::Function
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_117
+            comment: >-
+              TrustOps Lambdas only call public AWS API endpoints (Bedrock, S3,
+              DynamoDB, Step Functions) and expose no inbound network surface.
+              VPC attachment would require NAT/VPC endpoints for no isolation gain.
+          - id: CKV_AWS_272
+            comment: >-
+              Code-signing requires an AWS Signer profile and a signed artifact
+              pipeline; deployment packages are integrity-checked via S3
+              versioning and SHA256 checksums instead.
+    Properties:
+      FunctionName: !Sub '${ProjectName}-generate-recommendation-${Environment}-${DeploymentId}'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      KmsKeyArn: !GetAtt TrustOpsKmsKey.Arn
+      Architectures:
+        - arm64
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {"statusCode": 200, "body": "placeholder - update via deploy script"}
+      Timeout: 120
+      MemorySize: 256
+      ReservedConcurrentExecutions: 5
+      DeadLetterConfig:
+        TargetArn: !GetAtt LambdaDeadLetterQueue.Arn
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          WORKFLOWS_TABLE: !Ref WorkflowsTable
+          LOG_LEVEL: INFO
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  DetectHallucinationsFunction:
+    Type: AWS::Lambda::Function
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_117
+            comment: >-
+              TrustOps Lambdas only call public AWS API endpoints (Bedrock, S3,
+              DynamoDB, Step Functions) and expose no inbound network surface.
+              VPC attachment would require NAT/VPC endpoints for no isolation gain.
+          - id: CKV_AWS_272
+            comment: >-
+              Code-signing requires an AWS Signer profile and a signed artifact
+              pipeline; deployment packages are integrity-checked via S3
+              versioning and SHA256 checksums instead.
+    Properties:
+      FunctionName: !Sub '${ProjectName}-detect-hallucinations-${Environment}-${DeploymentId}'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      KmsKeyArn: !GetAtt TrustOpsKmsKey.Arn
+      Architectures:
+        - arm64
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {"statusCode": 200, "body": "placeholder - update via deploy script"}
+      Timeout: 300
+      MemorySize: 512
+      ReservedConcurrentExecutions: 10
+      DeadLetterConfig:
+        TargetArn: !GetAtt LambdaDeadLetterQueue.Arn
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          KNOWLEDGE_BASE_ID: !Sub '${ProjectName}-kb-${Environment}-${DeploymentId}'
+          RESULTS_BUCKET: !Ref ResultsBucket
+          LOG_LEVEL: INFO
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda Permissions for Step Functions
+  EvaluateSingleExampleInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EvaluateSingleExampleFunction
+      Action: lambda:InvokeFunction
+      Principal: states.amazonaws.com
+      SourceArn: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-*'
+
+  AggregateMetricsInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AggregateMetricsFunction
+      Action: lambda:InvokeFunction
+      Principal: states.amazonaws.com
+      SourceArn: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-*'
+
+  GenerateRecommendationInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref GenerateRecommendationFunction
+      Action: lambda:InvokeFunction
+      Principal: states.amazonaws.com
+      SourceArn: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-*'
+
+  DetectHallucinationsInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DetectHallucinationsFunction
+      Action: lambda:InvokeFunction
+      Principal: states.amazonaws.com
+      SourceArn: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-*'
+
+  EvaluationOrchestratorInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EvaluationOrchestratorFunction
+      Action: lambda:InvokeFunction
+      Principal: states.amazonaws.com
+      SourceArn: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-*'
+
+  FineTuningOrchestratorInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FineTuningOrchestratorFunction
+      Action: lambda:InvokeFunction
+      Principal: states.amazonaws.com
+      SourceArn: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-*'
+
+  TrustScoringInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TrustScoringFunction
+      Action: lambda:InvokeFunction
+      Principal: states.amazonaws.com
+      SourceArn: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-*'
+
+  ComparativeEvaluationInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ComparativeEvaluationFunction
+      Action: lambda:InvokeFunction
+      Principal: states.amazonaws.com
+      SourceArn: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-*'
+
+  # Step Functions State Machines
+  BaselineEvaluationStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${ProjectName}-baseline-evaluation-${Environment}-${DeploymentId}'
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      TracingConfiguration:
+        Enabled: true
+      DefinitionString: !Sub |
+        {
+          "Comment": "Baseline Evaluation Workflow",
+          "StartAt": "RunEvaluation",
+          "States": {
+            "RunEvaluation": {
+              "Type": "Task",
+              "Resource": "${EvaluationOrchestratorFunction.Arn}",
+              "Parameters": {
+                "evaluation_type": "baseline",
+                "model_id.$": "$.model_id",
+                "dataset_id.$": "$.dataset_id",
+                "inference_params.$": "$.inference_params"
+              },
+              "ResultPath": "$.evaluation_result",
+              "Next": "ScoreTrust"
+            },
+            "ScoreTrust": {
+              "Type": "Task",
+              "Resource": "${TrustScoringFunction.Arn}",
+              "Parameters": {
+                "response.$": "$.evaluation_result.body",
+                "prompt.$": "$.model_id"
+              },
+              "ResultPath": "$.trust_result",
+              "End": true
+            }
+          }
+        }
+      LoggingConfiguration:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt EvaluationLogGroup.Arn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  FineTuningStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${ProjectName}-fine-tuning-${Environment}-${DeploymentId}'
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      TracingConfiguration:
+        Enabled: true
+      DefinitionString: !Sub |
+        {
+          "Comment": "Fine-Tuning Workflow",
+          "StartAt": "InitializeRetryCounter",
+          "TimeoutSeconds": 86400,
+          "States": {
+            "InitializeRetryCounter": {
+              "Type": "Pass",
+              "Result": 0,
+              "ResultPath": "$.poll_count",
+              "Next": "StartFineTuning"
+            },
+            "StartFineTuning": {
+              "Type": "Task",
+              "Resource": "${FineTuningOrchestratorFunction.Arn}",
+              "Parameters": {
+                "action": "start",
+                "base_model_id.$": "$.base_model_id",
+                "training_data_id.$": "$.training_data_id",
+                "hyperparameters.$": "$.hyperparameters"
+              },
+              "ResultPath": "$.job_result",
+              "Next": "WaitForTraining",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ]
+            },
+            "WaitForTraining": {
+              "Type": "Wait",
+              "Seconds": 60,
+              "Next": "IncrementCounter"
+            },
+            "IncrementCounter": {
+              "Type": "Pass",
+              "Parameters": {
+                "poll_count.$": "States.MathAdd($.poll_count, 1)"
+              },
+              "ResultPath": "$.counter",
+              "Next": "CheckMaxPolls"
+            },
+            "CheckMaxPolls": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.counter.poll_count",
+                  "NumericGreaterThan": 720,
+                  "Next": "TrainingTimedOut"
+                }
+              ],
+              "Default": "CheckStatus"
+            },
+            "CheckStatus": {
+              "Type": "Task",
+              "Resource": "${FineTuningOrchestratorFunction.Arn}",
+              "Parameters": {
+                "action": "status",
+                "job_id.$": "$.job_result.body"
+              },
+              "ResultPath": "$.status_result",
+              "Next": "IsComplete",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ]
+            },
+            "IsComplete": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.status_result.statusCode",
+                  "NumericEquals": 200,
+                  "Next": "TrainingDone"
+                }
+              ],
+              "Default": "WaitForTraining"
+            },
+            "TrainingDone": {
+              "Type": "Succeed"
+            },
+            "TrainingTimedOut": {
+              "Type": "Fail",
+              "Cause": "Fine-tuning job exceeded maximum polling duration (12 hours)",
+              "Error": "TrainingTimeoutError"
+            }
+          }
+        }
+      LoggingConfiguration:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt FineTuningLogGroup.Arn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ComparativeEvaluationStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${ProjectName}-comparative-evaluation-${Environment}-${DeploymentId}'
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      TracingConfiguration:
+        Enabled: true
+      DefinitionString: !Sub |
+        {
+          "Comment": "Comparative Evaluation Workflow",
+          "StartAt": "RunComparison",
+          "States": {
+            "RunComparison": {
+              "Type": "Task",
+              "Resource": "${ComparativeEvaluationFunction.Arn}",
+              "Parameters": {
+                "model_id_1.$": "$.model_id_1",
+                "model_id_2.$": "$.model_id_2",
+                "dataset_id.$": "$.dataset_id",
+                "inference_params.$": "$.inference_params"
+              },
+              "ResultPath": "$.comparison_result",
+              "Next": "ScoreResults"
+            },
+            "ScoreResults": {
+              "Type": "Task",
+              "Resource": "${TrustScoringFunction.Arn}",
+              "Parameters": {
+                "response.$": "$.comparison_result.body",
+                "prompt.$": "$.model_id_1"
+              },
+              "ResultPath": "$.trust_result",
+              "End": true
+            }
+          }
+        }
+      LoggingConfiguration:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt EvaluationLogGroup.Arn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # CloudWatch Alarms
+  HighErrorRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-high-error-rate-${Environment}-${DeploymentId}'
+      AlarmDescription: Alert when error rate exceeds 5%
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If
+        - HasAlertEmail
+        - [!Ref AlarmNotificationTopic]
+        - !Ref 'AWS::NoValue'
+      OKActions: !If
+        - HasAlertEmail
+        - [!Ref AlarmNotificationTopic]
+        - !Ref 'AWS::NoValue'
+
+  LambdaTimeoutAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-lambda-timeout-${Environment}-${DeploymentId}'
+      AlarmDescription: Alert when Lambda timeout rate exceeds 10%
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 850000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If
+        - HasAlertEmail
+        - [!Ref AlarmNotificationTopic]
+        - !Ref 'AWS::NoValue'
+
+  WorkflowFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-workflow-failure-${Environment}-${DeploymentId}'
+      AlarmDescription: Alert when workflow failure rate exceeds 20%
+      MetricName: ExecutionsFailed
+      Namespace: AWS/States
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If
+        - HasAlertEmail
+        - [!Ref AlarmNotificationTopic]
+        - !Ref 'AWS::NoValue'
+
+  TrustScoreDegradationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-trust-score-degradation-${Environment}-${DeploymentId}'
+      AlarmDescription: Alert when mean trust score drops more than 10%
+      MetricName: TrustScore
+      Namespace: TrustOps
+      Statistic: Average
+      Period: 3600
+      EvaluationPeriods: 2
+      Threshold: 0.6
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If
+        - HasAlertEmail
+        - [!Ref AlarmNotificationTopic]
+        - !Ref 'AWS::NoValue'
+
+  DlqMessagesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-dlq-messages-${Environment}-${DeploymentId}'
+      AlarmDescription: Alert when messages land in the dead letter queue
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt LambdaDeadLetterQueue.QueueName
+      AlarmActions: !If
+        - HasAlertEmail
+        - [!Ref AlarmNotificationTopic]
+        - !Ref 'AWS::NoValue'
+
+Outputs:
+  DatasetsBucketName:
+    Description: S3 bucket for datasets
+    Value: !Ref DatasetsBucket
+    Export:
+      Name: !Sub '${ProjectName}-datasets-bucket-${Environment}-${DeploymentId}'
+
+  ResultsBucketName:
+    Description: S3 bucket for results
+    Value: !Ref ResultsBucket
+    Export:
+      Name: !Sub '${ProjectName}-results-bucket-${Environment}-${DeploymentId}'
+
+  ArtifactsBucketName:
+    Description: S3 bucket for artifacts
+    Value: !Ref ArtifactsBucket
+    Export:
+      Name: !Sub '${ProjectName}-artifacts-bucket-${Environment}-${DeploymentId}'
+
+  WorkflowsTableName:
+    Description: DynamoDB table for workflows
+    Value: !Ref WorkflowsTable
+    Export:
+      Name: !Sub '${ProjectName}-workflows-table-${Environment}-${DeploymentId}'
+
+  ModelsTableName:
+    Description: DynamoDB table for models
+    Value: !Ref ModelsTable
+    Export:
+      Name: !Sub '${ProjectName}-models-table-${Environment}-${DeploymentId}'
+
+  LambdaExecutionRoleArn:
+    Description: IAM role for Lambda functions
+    Value: !GetAtt LambdaExecutionRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-lambda-role-${Environment}-${DeploymentId}'
+
+  StepFunctionsExecutionRoleArn:
+    Description: IAM role for Step Functions
+    Value: !GetAtt StepFunctionsExecutionRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-stepfunctions-role-${Environment}-${DeploymentId}'
+
+  KnowledgeBaseRoleArn:
+    Description: IAM role for Bedrock Knowledge Base
+    Value: !GetAtt KnowledgeBaseRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-kb-role-${Environment}-${DeploymentId}'
+
+  EvaluationOrchestratorFunctionArn:
+    Description: Evaluation orchestrator Lambda function ARN
+    Value: !GetAtt EvaluationOrchestratorFunction.Arn
+    Export:
+      Name: !Sub '${ProjectName}-evaluation-function-${Environment}-${DeploymentId}'
+
+  FineTuningOrchestratorFunctionArn:
+    Description: Fine-tuning orchestrator Lambda function ARN
+    Value: !GetAtt FineTuningOrchestratorFunction.Arn
+    Export:
+      Name: !Sub '${ProjectName}-finetuning-function-${Environment}-${DeploymentId}'
+
+  TrustScoringFunctionArn:
+    Description: Trust scoring Lambda function ARN
+    Value: !GetAtt TrustScoringFunction.Arn
+    Export:
+      Name: !Sub '${ProjectName}-trustscoring-function-${Environment}-${DeploymentId}'
+
+  ComparativeEvaluationFunctionArn:
+    Description: Comparative evaluation Lambda function ARN
+    Value: !GetAtt ComparativeEvaluationFunction.Arn
+    Export:
+      Name: !Sub '${ProjectName}-comparative-function-${Environment}-${DeploymentId}'
+
+  BaselineEvaluationStateMachineArn:
+    Description: Baseline evaluation Step Functions state machine ARN
+    Value: !Ref BaselineEvaluationStateMachine
+    Export:
+      Name: !Sub '${ProjectName}-baseline-statemachine-${Environment}-${DeploymentId}'
+
+  FineTuningStateMachineArn:
+    Description: Fine-tuning Step Functions state machine ARN
+    Value: !Ref FineTuningStateMachine
+    Export:
+      Name: !Sub '${ProjectName}-finetuning-statemachine-${Environment}-${DeploymentId}'
+
+  ComparativeEvaluationStateMachineArn:
+    Description: Comparative evaluation Step Functions state machine ARN
+    Value: !Ref ComparativeEvaluationStateMachine
+    Export:
+      Name: !Sub '${ProjectName}-comparative-statemachine-${Environment}-${DeploymentId}'
+
+  EvaluateSingleExampleFunctionArn:
+    Description: Evaluate single example Lambda function ARN
+    Value: !GetAtt EvaluateSingleExampleFunction.Arn
+    Export:
+      Name: !Sub '${ProjectName}-evaluate-single-example-${Environment}-${DeploymentId}'
+
+  AggregateMetricsFunctionArn:
+    Description: Aggregate metrics Lambda function ARN
+    Value: !GetAtt AggregateMetricsFunction.Arn
+    Export:
+      Name: !Sub '${ProjectName}-aggregate-metrics-${Environment}-${DeploymentId}'
+
+  GenerateRecommendationFunctionArn:
+    Description: Generate recommendation Lambda function ARN
+    Value: !GetAtt GenerateRecommendationFunction.Arn
+    Export:
+      Name: !Sub '${ProjectName}-generate-recommendation-${Environment}-${DeploymentId}'
+
+  DetectHallucinationsFunctionArn:
+    Description: Detect hallucinations Lambda function ARN
+    Value: !GetAtt DetectHallucinationsFunction.Arn
+    Export:
+      Name: !Sub '${ProjectName}-detect-hallucinations-${Environment}-${DeploymentId}'

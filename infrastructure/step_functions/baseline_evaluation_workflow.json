@@ -1,0 +1,184 @@
+{
+  "Comment": "TrustOps Baseline Evaluation Workflow - Evaluates a single model against a dataset with trust scoring and hallucination detection",
+  "StartAt": "ValidateDataset",
+  "States": {
+    "ValidateDataset": {
+      "Type": "Task",
+      "Resource": "${ValidateDatasetArn}",
+      "Parameters": {
+        "dataset_s3_uri.$": "$.dataset_s3_uri",
+        "workflow_id.$": "$.workflow_id"
+      },
+      "ResultPath": "$.validation",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "InvokeModel"
+    },
+    "InvokeModel": {
+      "Type": "Map",
+      "ItemsPath": "$.validation.examples",
+      "MaxConcurrency": 10,
+      "Parameters": {
+        "prompt.$": "$$.Map.Item.Value.prompt",
+        "model_id.$": "$.model_id",
+        "example_id.$": "$$.Map.Item.Value.example_id",
+        "source_documents.$": "$$.Map.Item.Value.source_documents"
+      },
+      "Iterator": {
+        "StartAt": "EvaluateSingleExample",
+        "States": {
+          "EvaluateSingleExample": {
+            "Type": "Task",
+            "Resource": "${EvaluateSingleExampleArn}",
+            "Retry": [
+              {
+                "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.AWSLambdaException"],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2.0
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "ResultPath": "$.evaluation_results",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "ScoreTrust"
+    },
+    "ScoreTrust": {
+      "Type": "Task",
+      "Resource": "${ScoreTrustArn}",
+      "Parameters": {
+        "evaluation_results.$": "$.evaluation_results",
+        "model_id.$": "$.model_id",
+        "workflow_id.$": "$.workflow_id"
+      },
+      "ResultPath": "$.trust_scores",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "DetectHallucinations"
+    },
+    "DetectHallucinations": {
+      "Type": "Task",
+      "Resource": "${DetectHallucinationsArn}",
+      "Parameters": {
+        "evaluation_results.$": "$.evaluation_results",
+        "trust_scores.$": "$.trust_scores",
+        "workflow_id.$": "$.workflow_id"
+      },
+      "ResultPath": "$.hallucination_analysis",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "AggregateMetrics"
+    },
+    "AggregateMetrics": {
+      "Type": "Task",
+      "Resource": "${AggregateMetricsArn}",
+      "Parameters": {
+        "evaluation_results.$": "$.evaluation_results",
+        "trust_scores.$": "$.trust_scores",
+        "hallucination_analysis.$": "$.hallucination_analysis",
+        "model_id.$": "$.model_id",
+        "workflow_id.$": "$.workflow_id"
+      },
+      "ResultPath": "$.metrics",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "StoreResults"
+    },
+    "StoreResults": {
+      "Type": "Task",
+      "Resource": "${StoreResultsArn}",
+      "Parameters": {
+        "workflow_id.$": "$.workflow_id",
+        "model_id.$": "$.model_id",
+        "metrics.$": "$.metrics",
+        "results_bucket.$": "$.results_bucket"
+      },
+      "ResultPath": "$.storage",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "Success"
+    },
+    "Success": {
+      "Type": "Succeed"
+    },
+    "HandleError": {
+      "Type": "Fail",
+      "Cause": "Workflow execution failed",
+      "Error": "WorkflowExecutionError"
+    }
+  }
+}

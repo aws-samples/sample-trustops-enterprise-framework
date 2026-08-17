@@ -1,0 +1,246 @@
+{
+  "Comment": "TrustOps Fine-Tune and Compare Workflow - Baseline evaluation, fine-tuning, comparative evaluation, and deploy/iterate/reject recommendation",
+  "StartAt": "BaselineEvaluation",
+  "States": {
+    "BaselineEvaluation": {
+      "Type": "Task",
+      "Resource": "${EvaluateSingleExampleArn}",
+      "Parameters": {
+        "dataset_s3_uri.$": "$.dataset_s3_uri",
+        "model_id.$": "$.baseline_model_id",
+        "workflow_id.$": "$.workflow_id",
+        "evaluation_type": "baseline"
+      },
+      "ResultPath": "$.baseline",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "SubmitFineTuning"
+    },
+    "SubmitFineTuning": {
+      "Type": "Task",
+      "Resource": "${SubmitFineTuningArn}",
+      "Parameters": {
+        "base_model_id.$": "$.baseline_model_id",
+        "training_dataset_s3_uri.$": "$.training_dataset_s3_uri",
+        "hyperparameters.$": "$.hyperparameters",
+        "workflow_id.$": "$.workflow_id"
+      },
+      "ResultPath": "$.fine_tuning_job",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "WaitForFineTuning"
+    },
+    "WaitForFineTuning": {
+      "Type": "Wait",
+      "Seconds": 60,
+      "Next": "GetFineTuningStatus"
+    },
+    "GetFineTuningStatus": {
+      "Type": "Task",
+      "Resource": "${GetFineTuningStatusArn}",
+      "Parameters": {
+        "job_id.$": "$.fine_tuning_job.job_id",
+        "workflow_id.$": "$.workflow_id"
+      },
+      "ResultPath": "$.fine_tuning_status",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "CheckFineTuningComplete"
+    },
+    "CheckFineTuningComplete": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.fine_tuning_status.status",
+          "StringEquals": "Completed",
+          "Next": "FineTunedEvaluation"
+        },
+        {
+          "Variable": "$.fine_tuning_status.status",
+          "StringEquals": "Failed",
+          "Next": "HandleError"
+        }
+      ],
+      "Default": "WaitForFineTuning"
+    },
+    "FineTunedEvaluation": {
+      "Type": "Task",
+      "Resource": "${EvaluateSingleExampleArn}",
+      "Parameters": {
+        "dataset_s3_uri.$": "$.dataset_s3_uri",
+        "model_id.$": "$.fine_tuning_status.finetuned_model_id",
+        "workflow_id.$": "$.workflow_id",
+        "evaluation_type": "finetuned"
+      },
+      "ResultPath": "$.finetuned",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "ComputeComparativeMetrics"
+    },
+    "ComputeComparativeMetrics": {
+      "Type": "Task",
+      "Resource": "${ComputeComparativeMetricsArn}",
+      "Parameters": {
+        "baseline_metrics.$": "$.baseline.metrics",
+        "finetuned_metrics.$": "$.finetuned.metrics",
+        "workflow_id.$": "$.workflow_id"
+      },
+      "ResultPath": "$.comparative_metrics",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "GenerateRecommendation"
+    },
+    "GenerateRecommendation": {
+      "Type": "Task",
+      "Resource": "${GenerateRecommendationArn}",
+      "Parameters": {
+        "baseline_metrics.$": "$.baseline.metrics",
+        "finetuned_metrics.$": "$.finetuned.metrics",
+        "comparative_metrics.$": "$.comparative_metrics",
+        "workflow_id.$": "$.workflow_id"
+      },
+      "ResultPath": "$.recommendation",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "ApprovalGate"
+    },
+    "ApprovalGate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "Parameters": {
+        "QueueUrl.$": "$.approval_queue_url",
+        "MessageBody": {
+          "workflow_id.$": "$.workflow_id",
+          "task_token.$": "$$.Task.Token",
+          "recommendation.$": "$.recommendation",
+          "comparative_metrics.$": "$.comparative_metrics",
+          "message": "Fine-tuning evaluation complete. Awaiting human approval for deployment decision."
+        }
+      },
+      "ResultPath": "$.approval",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "StoreResults"
+    },
+    "StoreResults": {
+      "Type": "Task",
+      "Resource": "${StoreResultsArn}",
+      "Parameters": {
+        "workflow_id.$": "$.workflow_id",
+        "baseline.$": "$.baseline",
+        "finetuned.$": "$.finetuned",
+        "comparative_metrics.$": "$.comparative_metrics",
+        "recommendation.$": "$.recommendation",
+        "results_bucket.$": "$.results_bucket"
+      },
+      "ResultPath": "$.storage",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "Success"
+    },
+    "Success": {
+      "Type": "Succeed"
+    },
+    "HandleError": {
+      "Type": "Fail",
+      "Cause": "Workflow execution failed",
+      "Error": "WorkflowExecutionError"
+    }
+  }
+}

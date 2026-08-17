@@ -1,0 +1,10 @@
+{"prompt": "Our API response times have increased by 300% since the last deployment and users are reporting timeouts.", "completion": "critical", "category": "performance"}
+{"prompt": "Can you add support for exporting evaluation reports in PDF format?", "completion": "feature_request", "category": "enhancement"}
+{"prompt": "The documentation for the trust scoring API is missing the description of the bias dimension parameters.", "completion": "documentation", "category": "documentation"}
+{"prompt": "When I try to upload a dataset larger than 5GB, the process crashes without any error message.", "completion": "bug", "category": "data_management"}
+{"prompt": "Is it possible to integrate TrustOps with our existing Jenkins CI/CD pipeline?", "completion": "question", "category": "integration"}
+{"prompt": "The fine-tuning job has been stuck at 0% progress for over 2 hours with no error logs.", "completion": "bug", "category": "fine_tuning"}
+{"prompt": "We need the ability to set custom trust score thresholds per department for compliance purposes.", "completion": "feature_request", "category": "compliance"}
+{"prompt": "The model comparison report shows negative latency values which doesn't make sense.", "completion": "bug", "category": "evaluation"}
+{"prompt": "How do I configure rate limiting for external API providers in the model registry?", "completion": "question", "category": "configuration"}
+{"prompt": "Great work on the hallucination detection feature. It caught several issues our manual review missed.", "completion": "positive_feedback", "category": "feedback"}

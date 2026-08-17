@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  dashboard:
+    build:
+      context: ..
+      dockerfile: dashboard/Dockerfile
+    ports:
+      - "8501:8501"
+    environment:
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - TRUSTOPS_S3_BUCKET=${TRUSTOPS_S3_BUCKET:-trustops-results}
+    volumes:
+      - ..:/app
+    restart: unless-stopped

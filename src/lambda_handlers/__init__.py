@@ -1,0 +1,4 @@
+from .evaluate_single_example import handler as evaluate_single_example_handler
+from .aggregate_metrics import handler as aggregate_metrics_handler
+from .generate_recommendation import handler as generate_recommendation_handler
+from .detect_hallucinations import handler as detect_hallucinations_handler

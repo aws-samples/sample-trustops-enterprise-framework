@@ -1,0 +1,13 @@
+# Terraform backend configuration - copy to backend.hcl and fill in.
+#
+#   cp backend.hcl.example backend.hcl
+#   terraform init -backend-config=backend.hcl
+#
+# backend.hcl is gitignored: bucket names are deployment-specific, and S3
+# names are globally unique, so they must not be committed as shared defaults.
+
+bucket         = "trustops-terraform-state-<ACCOUNT_ID>-<REGION>"
+key            = "trustops/terraform.tfstate"
+region         = "<REGION>"
+encrypt        = true
+dynamodb_table = "trustops-terraform-locks"
