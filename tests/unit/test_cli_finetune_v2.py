@@ -90,6 +90,7 @@ class TestFinetuneStart:
             "finetune", "start",
             "--model", "anthropic.claude-v2",
             "--dataset", "ds-001",
+            "--yes",
         ])
         assert result.exit_code == 0
         assert "ft-abc123" in result.output
@@ -164,6 +165,7 @@ class TestFinetuneStart:
             "--model", "anthropic.claude-v2",
             "--dataset", "ds-001",
             "--config", str(config_file),
+            "--yes",
         ])
         assert result.exit_code == 0
 

@@ -672,10 +672,20 @@ class EvaluationExample:
 
     @classmethod
     def from_dict(cls, data: dict) -> 'EvaluationExample':
+        expected = data.get('expected_response')
+        if expected is None:
+            # Fall back to 'completion' key (JSONL sample data format)
+            expected = data.get('completion')
+        
+        source_docs = data.get('source_documents')
+        if source_docs is None and data.get('context'):
+            # Fall back to 'context' key (JSONL sample data format)
+            source_docs = [data['context']]
+        
         return cls(
             prompt=data['prompt'],
-            expected_response=data.get('expected_response', ''),
-            source_documents=data.get('source_documents', []),
+            expected_response=expected,
+            source_documents=source_docs or [],
             category=data.get('category', 'general'),
             metadata=data.get('metadata', {}),
         )

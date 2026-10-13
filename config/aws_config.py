@@ -123,8 +123,14 @@ class AWSConfig:
         return self.datasets_bucket
 
     # DynamoDB tables
+    # DynamoDB tables
     workflows_table: str = os.getenv("TRUSTOPS_WORKFLOWS_TABLE", "trustops-workflows")
     models_table: str = os.getenv("TRUSTOPS_MODELS_TABLE", "trustops-models")
+    dataset_versions_table: str = os.getenv("TRUSTOPS_DATASET_VERSIONS_TABLE", "trustops-dataset-versions")
+    dataset_lineage_table: str = os.getenv("TRUSTOPS_DATASET_LINEAGE_TABLE", "trustops-dataset-lineage")
+    results_table: str = os.getenv("TRUSTOPS_RESULTS_TABLE", "trustops-results")
+    evaluations_table: str = os.getenv("TRUSTOPS_EVALUATIONS_TABLE", "trustops-evaluations")
+    fine_tuning_jobs_table: str = os.getenv("TRUSTOPS_FINE_TUNING_JOBS_TABLE", "trustops-fine-tuning-jobs")
     
     # CloudWatch
     log_group: str = os.getenv("TRUSTOPS_LOG_GROUP", "/aws/trustops")
@@ -145,10 +151,10 @@ class AWSConfig:
     
     # Model configuration
     default_embedding_model: str = os.getenv(
-        "DEFAULT_EMBEDDING_MODEL", "amazon.titan-embed-text-v1"
+        "DEFAULT_EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0"
     )
     default_foundation_model: str = os.getenv(
-        "DEFAULT_FOUNDATION_MODEL", "anthropic.claude-v2"
+        "DEFAULT_FOUNDATION_MODEL", "amazon.nova-lite-v1:0"
     )
     
     # Bedrock fine-tuning
@@ -159,9 +165,15 @@ class AWSConfig:
     claude_v2_output_cost: float = float(os.getenv("CLAUDE_V2_OUTPUT_COST", "0.024"))
     
     def get_boto3_session_kwargs(self) -> dict:
-        """Get kwargs for boto3 session creation."""
+        """Get kwargs for boto3 session creation.
+        
+        Skips profile_name when AWS_ACCESS_KEY_ID is set in the environment,
+        because boto3 profile resolution takes precedence over env var
+        credentials, which can silently route requests to the wrong account.
+        """
         kwargs = {"region_name": self.region}
-        if self.profile:
+        # Only use the profile when no explicit credentials are set via env vars
+        if self.profile and not os.getenv("AWS_ACCESS_KEY_ID"):
             kwargs["profile_name"] = self.profile
         return kwargs
     

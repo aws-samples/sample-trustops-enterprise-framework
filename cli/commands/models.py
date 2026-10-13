@@ -27,9 +27,24 @@ from cli.utils.output import (
 
 
 def _get_registry():
-    """Create a ModelRegistry instance."""
+    """Create a ModelRegistry instance with Bedrock adapter registered."""
     from src.registry.model_registry import ModelRegistry
-    return ModelRegistry()
+    from src.data_models.model import ModelProvider
+    
+    registry = ModelRegistry()
+    
+    # Register Bedrock adapter so discover_models() can find real models.
+    # BedrockAdapter requires a model_id for invocation, but list_models()
+    # only needs the underlying Bedrock client. We pass a placeholder ID
+    # since we're only using the adapter for discovery here.
+    try:
+        from src.adapters.bedrock_adapter import BedrockAdapter
+        adapter = BedrockAdapter(model_id="amazon.nova-lite-v1:0")
+        registry.register_adapter(ModelProvider.BEDROCK, adapter)
+    except Exception:
+        pass  # Bedrock may not be available
+    
+    return registry
 
 
 def _model_to_dict(model) -> dict:
@@ -107,6 +122,12 @@ def models_list(ctx, provider, capability, fine_tunable, output_format):
 
         provider_enum = ModelProvider(provider) if provider else None
         capability_enum = ModelCapability(capability) if capability else None
+
+        # Discover models from registered providers before listing
+        try:
+            asyncio.run(registry.discover_models())
+        except Exception:
+            pass  # Discovery may fail if no adapters or no credentials
 
         model_list = asyncio.run(
             registry.list_models(

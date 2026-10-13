@@ -3,6 +3,11 @@
 # Last updated: 2024
 # Source: AWS Bedrock Pricing Documentation
 
+metadata:
+  last_updated: '2024-01-01'
+  source: 'AWS Bedrock Pricing Documentation'
+  note: 'Prices should be periodically verified against current AWS pricing pages'
+
 # AWS Bedrock Models
 bedrock:
   # Anthropic Claude Models

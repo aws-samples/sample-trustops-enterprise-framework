@@ -61,12 +61,8 @@ class DatasetVersionManager:
         """
         self.region = region or config.region
         self.datasets_bucket = datasets_bucket or config.datasets_bucket
-        self.versions_table = versions_table or os.getenv(
-            "TRUSTOPS_DATASET_VERSIONS_TABLE", "trustops-dataset-versions"
-        )
-        self.lineage_table = lineage_table or os.getenv(
-            "TRUSTOPS_DATASET_LINEAGE_TABLE", "trustops-dataset-lineage"
-        )
+        self.versions_table = versions_table or config.dataset_versions_table
+        self.lineage_table = lineage_table or config.dataset_lineage_table
         
         # Initialize AWS clients
         session_kwargs = config.get_boto3_session_kwargs()
@@ -173,8 +169,13 @@ class DatasetVersionManager:
                 s3_uri = f"s3://{self.datasets_bucket}/{s3_key}"
 
                 # Store metadata in DynamoDB
+                # Extract numeric version for the table's sort key (type N).
+                # Use a monotonically increasing integer based on the timestamp.
+                version_number = int(timestamp.strftime('%Y%m%d%H%M%S'))
+                
                 version_metadata = {
                     'dataset_id': dataset_id,
+                    'version': version_number,
                     'version_id': version_id,
                     's3_uri': s3_uri,
                     'checksum': checksum,
@@ -933,7 +934,7 @@ class DatasetVersionManager:
                 TableName=self.versions_table,
                 Key={
                     'dataset_id': {'S': dataset_id},
-                    'version_id': {'S': version_id}
+                    'version': {'N': str(version_id) if version_id.isdigit() else '0'}
                 }
             )
             
@@ -960,6 +961,7 @@ class DatasetVersionManager:
         """
         return {
             'dataset_id': {'S': data['dataset_id']},
+            'version': {'N': str(data['version'])},
             'version_id': {'S': data['version_id']},
             's3_uri': {'S': data['s3_uri']},
             'checksum': {'S': data['checksum']},
@@ -985,13 +987,14 @@ class DatasetVersionManager:
         """
         return {
             'dataset_id': item['dataset_id']['S'],
-            'version_id': item['version_id']['S'],
+            'version': int(item['version']['N']),
+            'version_id': item.get('version_id', {}).get('S', ''),
             's3_uri': item['s3_uri']['S'],
             'checksum': item['checksum']['S'],
             'size_bytes': int(item['size_bytes']['N']),
             'created_at': item['created_at']['S'],
-            'description': item['description']['S'],
-            'parent_version_id': item['parent_version_id']['S'],
+            'description': item.get('description', {}).get('S', ''),
+            'parent_version_id': item.get('parent_version_id', {}).get('S', ''),
             'format': item['format']['S'],
             'task_type': item['task_type']['S'],
             'row_count': int(item['row_count']['N']),

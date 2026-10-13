@@ -261,7 +261,7 @@ class BedrockClient:
             if error_code == 'ValidationException':
                 raise ValueError(f"Invalid request parameters: {error_message}") from e
             elif error_code == 'ResourceNotFoundException':
-                raise ValueError(f"Model not found: {model_id}") from e
+                raise ValueError(f"Model ''{model_id}'' unavailable: {error_message}") from e
             elif error_code == 'ThrottlingException':
                 raise RuntimeError(f"Rate limit exceeded for model {model_id}. Please retry.") from e
             elif error_code == 'ServiceQuotaExceededException':
@@ -292,12 +292,28 @@ class BedrockClient:
             return False
 
         # Modern chat/text models supported by Converse.
+        # The Converse API is the universal modern Bedrock API — it works with
+        # all providers. We accept any known provider prefix here.
         converse_prefixes = (
-            'anthropic.claude',   # claude-3 and all newer versions
-            'amazon.nova',        # Nova micro/lite/pro
-            'meta.llama3',
+            'anthropic.claude',
+            'amazon.nova',
+            'amazon.titan',
+            'meta.llama',
             'mistral.',
-            'cohere.command-r',
+            'cohere.',
+            'ai21.',
+            'deepseek.',
+            'writer.',
+            'google.',
+            'nvidia.',
+            'openai.',
+            'minimax.',
+            'moonshotai.',
+            'moonshot.',
+            'xai.',
+            'qwen.',
+            'zai.',
+            'twelvelabs.',
         )
         return any(model_id.startswith(p) for p in converse_prefixes)
 
@@ -376,7 +392,7 @@ class BedrockClient:
             if error_code == 'ValidationException':
                 raise ValueError(f"Invalid request parameters: {error_message}") from e
             elif error_code == 'ResourceNotFoundException':
-                raise ValueError(f"Model not found: {model_id}") from e
+                raise ValueError(f"Model ''{model_id}'' unavailable: {error_message}") from e
             elif error_code == 'ThrottlingException':
                 raise RuntimeError(f"Rate limit exceeded for model {model_id}. Please retry.") from e
             elif error_code == 'ServiceQuotaExceededException':

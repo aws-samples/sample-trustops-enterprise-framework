@@ -49,7 +49,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         from src.clients.inference_client import InferenceClient
         from src.data_models.evaluation import EvaluationConfig, InferenceParams
         from src.evaluation.evaluation_engine import EvaluationEngine
-        from src.trust_scoring.trust_scoring_engine import TrustScoringEngine
+        from src.trust_scoring.trust_scoring_engine_v2 import TrustScoringEngine
 
         inference_params = event.get("inference_params", {})
         config = EvaluationConfig(

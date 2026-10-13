@@ -98,6 +98,17 @@ class FineTuningPipeline:
         self._audit_logger = audit_logger or TrainingAuditLogger()
         self._jobs: dict[str, FineTuningJob] = {}
         self._emitters: dict[str, ProgressEmitter] = {}
+        
+        # DynamoDB persistence for fine-tuning jobs
+        try:
+            import boto3
+            from config.aws_config import config
+            session_kwargs = config.get_boto3_session_kwargs()
+            self._dynamodb = boto3.client('dynamodb', **session_kwargs)
+            self._jobs_table = config.fine_tuning_jobs_table
+        except Exception:
+            self._dynamodb = None
+            self._jobs_table = None
 
     @property
     def audit_logger(self) -> TrainingAuditLogger:
@@ -244,6 +255,55 @@ class FineTuningPipeline:
 
         return f"s3://{aws_config.datasets_bucket}/datasets/{training_data_id}"
 
+    def _persist_job(self, job: FineTuningJob) -> None:
+        """Persist a fine-tuning job to DynamoDB."""
+        if self._dynamodb is None or self._jobs_table is None:
+            return
+        try:
+            status_val = job.status.value if hasattr(job.status, 'value') else str(job.status)
+            item = {
+                'job_id': {'S': job.job_id},
+                'status': {'S': status_val},
+                'base_model_id': {'S': job.base_model_id},
+                'training_data_s3_uri': {'S': job.training_data_s3_uri or ''},
+                'estimated_cost': {'N': str(job.estimated_cost)},
+                'created_at': {'S': job.created_at.isoformat() if job.created_at else ''},
+            }
+            self._dynamodb.put_item(TableName=self._jobs_table, Item=item)
+        except Exception:
+            pass  # Best-effort persistence; in-memory is the primary store
+
+    def _load_job(self, job_id: str) -> Optional[FineTuningJob]:
+        """Load a fine-tuning job from DynamoDB."""
+        if self._dynamodb is None or self._jobs_table is None:
+            return None
+        try:
+            resp = self._dynamodb.get_item(
+                TableName=self._jobs_table,
+                Key={'job_id': {'S': job_id}},
+            )
+            item = resp.get('Item')
+            if not item:
+                return None
+            created_at_str = item.get('created_at', {}).get('S', '')
+            created_at = None
+            if created_at_str:
+                try:
+                    created_at = datetime.fromisoformat(created_at_str)
+                except (ValueError, TypeError):
+                    pass
+            return FineTuningJob(
+                job_id=item['job_id']['S'],
+                status=FineTuningStatus(item['status']['S']),
+                base_model_id=item['base_model_id']['S'],
+                training_data_s3_uri=item.get('training_data_s3_uri', {}).get('S', ''),
+                estimated_cost=float(item.get('estimated_cost', {}).get('N', '0')),
+                created_at=created_at,
+                hyperparameters=HyperparameterConfig(),
+            )
+        except Exception:
+            return None
+
     def start(
         self,
         config: FineTuningConfig,
@@ -301,6 +361,9 @@ class FineTuningPipeline:
                 "job_name": config.job_name,
             },
         )
+
+        # Persist job to DynamoDB
+        self._persist_job(job)
 
         if provider_client is not None:
             self._submit_to_provider(
@@ -371,7 +434,7 @@ class FineTuningPipeline:
         Returns:
             The FineTuningJob if found, None otherwise.
         """
-        return self._jobs.get(job_id)
+        return self._jobs.get(job_id) or self._load_job(job_id)
 
     def stop(
         self, job_id: str, reason: str = "",

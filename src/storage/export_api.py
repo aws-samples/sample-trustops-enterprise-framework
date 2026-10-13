@@ -70,26 +70,32 @@ def export_to_csv(data: Any) -> bytes:
 def export_to_pdf(data: Any) -> bytes:
     """Export data to PDF format.
 
-    Generates a simple text-based PDF representation.
-    For production use, integrate a proper PDF library.
+    Generates a minimal but valid PDF document using raw PDF operators.
+    No external library required.
 
     Args:
         data: Data to export.
 
     Returns:
-        PDF-like bytes (plain text representation).
+        Valid PDF bytes.
     """
-    # Simple text-based PDF placeholder
-    # In production, use reportlab or similar
+    # Build the text content
     lines = [
-        "TrustOps Results Export",
-        "=" * 40,
+        "TrustOps Evaluation Results",
+        "=" * 50,
         "",
     ]
 
     if isinstance(data, dict):
         for key, value in sorted(data.items()):
-            lines.append(f"{key}: {value}")
+            if isinstance(value, (dict, list)):
+                import json as _json
+                lines.append(f"{key}:")
+                formatted = _json.dumps(value, indent=2, default=str)
+                for sub_line in formatted.split("\n"):
+                    lines.append(f"    {sub_line}")
+            else:
+                lines.append(f"{key}: {value}")
     elif isinstance(data, list):
         for i, item in enumerate(data):
             lines.append(f"--- Item {i + 1} ---")
@@ -101,8 +107,89 @@ def export_to_pdf(data: Any) -> bytes:
     else:
         lines.append(str(data))
 
-    content = "\n".join(lines)
-    return content.encode("utf-8")
+    text_content = "\n".join(lines)
+
+    # Generate a minimal valid PDF (PDF 1.4 spec)
+    # This produces a real PDF that any PDF reader can open.
+    def _pdf_escape(s: str) -> str:
+        return s.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    page_lines = text_content.split("\n")
+    # Split into pages of ~50 lines each
+    pages_text = []
+    for i in range(0, len(page_lines), 50):
+        chunk = page_lines[i:i + 50]
+        pages_text.append(chunk)
+
+    objects = []
+    obj_offsets = []
+
+    # Object 1: Catalog
+    objects.append("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
+    # Object 2: Pages (filled in later)
+    objects.append("")  # placeholder
+    # Object 3: Font
+    objects.append("3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>\nendobj\n")
+
+    page_obj_ids = []
+    next_obj = 4
+    for page_lines_chunk in pages_text:
+        # Build text stream for this page
+        stream_lines = ["BT", "/F1 10 Tf", "36 756 Td", "12 TL"]
+        for line in page_lines_chunk:
+            escaped = _pdf_escape(line[:120])  # Truncate long lines
+            stream_lines.append(f"({escaped}) '")
+        stream_lines.append("ET")
+        stream = "\n".join(stream_lines)
+
+        # Content stream object
+        content_id = next_obj
+        objects.append(
+            f"{content_id} 0 obj\n"
+            f"<< /Length {len(stream)} >>\n"
+            f"stream\n{stream}\nendstream\n"
+            f"endobj\n"
+        )
+        next_obj += 1
+
+        # Page object
+        page_id = next_obj
+        page_obj_ids.append(page_id)
+        objects.append(
+            f"{page_id} 0 obj\n"
+            f"<< /Type /Page /Parent 2 0 R "
+            f"/MediaBox [0 0 612 792] "
+            f"/Contents {content_id} 0 R "
+            f"/Resources << /Font << /F1 3 0 R >> >> >>\n"
+            f"endobj\n"
+        )
+        next_obj += 1
+
+    # Fill in Pages object (object 2)
+    kids = " ".join(f"{pid} 0 R" for pid in page_obj_ids)
+    objects[1] = (
+        f"2 0 obj\n"
+        f"<< /Type /Pages /Kids [{kids}] /Count {len(page_obj_ids)} >>\n"
+        f"endobj\n"
+    )
+
+    # Build the PDF file
+    pdf_parts = ["%PDF-1.4\n"]
+    for obj in objects:
+        obj_offsets.append(len("".join(pdf_parts)))
+        pdf_parts.append(obj)
+
+    xref_offset = len("".join(pdf_parts))
+    pdf_parts.append(f"xref\n0 {len(objects) + 1}\n")
+    pdf_parts.append("0000000000 65535 f \n")
+    for offset in obj_offsets:
+        pdf_parts.append(f"{offset:010d} 00000 n \n")
+    pdf_parts.append(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+        f"startxref\n{xref_offset}\n%%EOF\n"
+    )
+
+    return "".join(pdf_parts).encode("latin-1")
 
 
 def export_result(data: Any, format: str) -> bytes:

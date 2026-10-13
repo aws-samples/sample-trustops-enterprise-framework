@@ -29,18 +29,31 @@ class SemanticSimilarityAnalyzer:
             mock_mode: If True, run in mock mode without actual AWS calls
         """
         self.embedding_model_id = embedding_model_id or config.default_embedding_model
-        self.mock_mode = mock_mode or not config.knowledge_base_id
+        
+        # Mock mode should only be used when explicitly requested or when
+        # Bedrock is truly unavailable. Embeddings work without a Knowledge
+        # Base — they only need the bedrock-runtime invoke_model API with
+        # the Titan embeddings model. Previously this forced mock mode
+        # whenever KNOWLEDGE_BASE_ID was unset, which made hallucination
+        # detection meaningless.
+        self.mock_mode = mock_mode
 
         if not self.mock_mode:
-            # Initialize Bedrock runtime client
-            session_kwargs = config.get_boto3_session_kwargs()
-            session = boto3.Session(**session_kwargs)
-            self.bedrock_runtime = session.client('bedrock-runtime')
+            try:
+                # Initialize Bedrock runtime client for embeddings
+                session_kwargs = config.get_boto3_session_kwargs()
+                session = boto3.Session(**session_kwargs)
+                self.bedrock_runtime = session.client('bedrock-runtime')
+            except Exception:
+                # Fall back to mock mode if Bedrock is not accessible
+                self.mock_mode = True
         else:
             self.bedrock_runtime = None
 
-        # Initialize or use provided Knowledge Base client
-        self.kb_client = knowledge_base_client or KnowledgeBaseClient(mock_mode=self.mock_mode)
+        # Initialize or use provided Knowledge Base client.
+        # Knowledge Base is optional — mock it if not configured.
+        kb_mock = not config.knowledge_base_id
+        self.kb_client = knowledge_base_client or KnowledgeBaseClient(mock_mode=kb_mock)
     
     def generate_embedding(self, text: str, model_id: Optional[str] = None) -> List[float]:
         """

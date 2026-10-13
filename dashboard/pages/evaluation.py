@@ -91,6 +91,14 @@ def _load_evaluation_data() -> dict[str, Any]:
         data["datasets"] = generate_demo_datasets()
         data["demo_mode"] = True
 
+    # Try loading real evaluation data from S3 if still using demo data
+    if data.get("demo_mode"):
+        from dashboard.utils.backend import list_s3_results
+        s3_results = list_s3_results()
+        if s3_results:
+            data["evaluations"] = s3_results
+            data["demo_mode"] = False
+
     return data
 
 

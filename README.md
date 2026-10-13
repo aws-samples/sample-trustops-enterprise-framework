@@ -164,8 +164,8 @@ Note the `dataset-id` from the output.
 
 ```bash
 trustops evaluate baseline \
-  --model-id anthropic.claude-3-haiku-20240307-v1:0 \
-  --dataset-id <dataset-id>
+  --model anthropic.claude-3-haiku-20240307-v1:0 \
+  --dataset <dataset-id>
 ```
 
 ### Step 6: Test Lambda functions directly
@@ -227,28 +227,28 @@ make run-dashboard
 
 ```bash
 trustops evaluate baseline \
-  --model-id anthropic.claude-3-haiku-20240307-v1:0 \
-  --dataset-id <dataset-id>
+  --model anthropic.claude-3-haiku-20240307-v1:0 \
+  --dataset <dataset-id>
 ```
 
 ### Fine-Tune a Model
 
 ```bash
 trustops finetune start \
-  --model-id amazon.titan-text-express-v1 \
-  --dataset-id <training-dataset-id> \
+  --model amazon.titan-text-express-v1 \
+  --dataset <training-dataset-id> \
   --job-name my-finetune-job
 
-trustops finetune status --job-id <job-id>
+trustops finetune status <job-id>
 ```
 
 ### Comparative Evaluation
 
 ```bash
 trustops evaluate compare \
-  --baseline-model-id anthropic.claude-v2 \
-  --finetuned-model-id <finetuned-model-arn> \
-  --dataset-id <dataset-id>
+  --model-1 amazon.nova-lite-v1:0 \
+  --model-2 <finetuned-model-arn> \
+  --dataset <dataset-id>
 ```
 
 ### View Deployment Recommendation
@@ -284,8 +284,8 @@ trustops workflows resume --workflow-id <id>
 ### Results
 
 ```bash
-trustops results get --evaluation-id <eval-id>
-trustops results export --evaluation-id <eval-id> --format json
+trustops results get <eval-id>
+trustops results export <eval-id> --format json
 ```
 
 For the full CLI reference, see [docs/END_TO_END_RUNBOOK.md](docs/END_TO_END_RUNBOOK.md).

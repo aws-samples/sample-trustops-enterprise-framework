@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools==68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -22,29 +22,29 @@ classifiers = [
 ]
 
 dependencies = [
-    "boto3>=1.34.0",
-    "botocore>=1.34.0",
-    "aiohttp>=3.9.0",
-    "numpy>=1.24.0",
-    "scipy>=1.11.0",
-    "pydantic>=2.5.0",
-    "python-dotenv>=1.0.0",
-    "click>=8.1.0",
-    "PyYAML>=6.0",
-    "streamlit>=1.28.0",
-    "plotly>=5.18.0",
-    "pandas>=2.1.0",
+    "boto3==1.43.100",
+    "botocore==1.43.100",
+    "aiohttp==3.14.3",
+    "numpy==2.4.6",
+    "scipy==1.17.1",
+    "pydantic==2.13.5",
+    "python-dotenv==1.2.3",
+    "click==8.5.0",
+    "PyYAML==6.0.3",
+    "streamlit==1.64.0",
+    "plotly==7.1.0",
+    "pandas==3.0.6",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
-    "pytest-asyncio>=0.23.0",
-    "hypothesis>=6.92.0",
-    "moto>=4.2.0",
-    "black>=23.0.0",
-    "pylint>=3.0.0",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "pytest-asyncio==1.4.0",
+    "hypothesis==6.168.1",
+    "moto==5.2.3",
+    "black==23.0.0",
+    "pylint==3.0.0",
 ]
 
 [project.scripts]
@@ -56,10 +56,16 @@ include = ["src*", "cli*", "dashboard*", "config*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --strict-markers --tb=short --disable-warnings"
 markers = [
     "unit: Unit tests",
     "property: Property-based tests",
     "integration: Integration tests",
+    "slow: Tests that take significant time to run",
+    "requires_aws: Tests that require AWS credentials and services",
 ]
 
 [tool.black]

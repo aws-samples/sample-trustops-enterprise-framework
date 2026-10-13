@@ -164,8 +164,11 @@ class SageMakerAdapter(BaseModelAdapter):
     ) -> AsyncIterator[str]:
         """Stream model response tokens as they are generated.
 
-        Note: This is a placeholder implementation. Full streaming support
-        requires using the SageMaker streaming API if supported by the endpoint.
+        Note: SageMaker endpoints do not natively support token-level
+        streaming via the InvokeEndpoint API. This implementation performs
+        a full invocation and yields the complete response. For real-time
+        streaming, deploy with SageMaker Inference Components using the
+        streaming response mode.
 
         Args:
             request: The inference request containing prompt and parameters

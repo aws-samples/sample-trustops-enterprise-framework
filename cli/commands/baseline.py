@@ -116,6 +116,19 @@ def baseline(ctx, model_id, dataset, workflow_id, wait):
             f"  Hallucination Rate: "
             f"{result.metrics.hallucination_rate:.1%}"
         )
+        
+        # Warn if hallucination rate is suspiciously high (mock mode indicator)
+        if result.metrics.hallucination_rate >= 0.99:
+            import os
+            if not os.getenv("KNOWLEDGE_BASE_ID"):
+                print_info(
+                    "\n  ⚠ Note: 100% hallucination rate is expected when "
+                    "no Bedrock Knowledge Base is configured."
+                )
+                print_info(
+                    "    Set KNOWLEDGE_BASE_ID in .env to enable "
+                    "real semantic similarity scoring."
+                )
         print_info(f"\nResults stored at: {result.results_s3_uri}")
         
         # Display trust score distribution

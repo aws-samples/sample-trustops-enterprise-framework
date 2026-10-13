@@ -37,6 +37,9 @@ def _get_orchestrator():
 
 def _workflow_to_dict(wf) -> dict:
     """Convert workflow data to serializable dict."""
+    # Handle both objects with attributes and plain dicts
+    if isinstance(wf, dict):
+        return wf
     data = {
         "workflow_id": wf.workflow_id,
         "status": (
@@ -102,10 +105,11 @@ def workflows_list(ctx, wf_status, output_format):
     Requirements: 10.13
     """
     try:
-        orchestrator = _get_orchestrator()
+        from src.orchestration.workflow_manager import WorkflowManager
+        wm = WorkflowManager()
 
-        wf_list = asyncio.run(
-            orchestrator.list_workflows(status=wf_status)
+        wf_list = wm.get_workflow_history(
+            {"status": wf_status} if wf_status else {}
         )
 
         results = [_workflow_to_dict(w) for w in wf_list]
@@ -238,11 +242,10 @@ def workflows_status(ctx, workflow_id, output_format):
     Requirements: 10.15
     """
     try:
-        orchestrator = _get_orchestrator()
+        from src.orchestration.workflow_manager import WorkflowManager
+        wm = WorkflowManager()
 
-        workflow = asyncio.run(
-            orchestrator.get_workflow_status(workflow_id)
-        )
+        workflow = wm.get_workflow(workflow_id)
 
         if workflow is None:
             print_error(f"Workflow '{workflow_id}' not found")

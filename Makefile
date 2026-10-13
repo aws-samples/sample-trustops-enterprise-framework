@@ -46,11 +46,11 @@ test:
 
 test-unit:
 	@echo "Running unit tests..."
-	pytest tests/unit/ -m unit
+	pytest tests/unit/
 
 test-property:
 	@echo "Running property-based tests..."
-	pytest tests/property/ -m property
+	pytest tests/property/
 
 test-all:
 	@echo "Running all tests with verbose output..."

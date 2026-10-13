@@ -1,17 +1,24 @@
 """
 Evaluation orchestrator for baseline and comparative model evaluations.
 """
+import asyncio
 import uuid
 import json
 from datetime import datetime
 from typing import Optional, List
 from src.aws_clients.bedrock_client import BedrockClient
 from src.aws_clients.s3_storage_manager import S3StorageManager
-from src.trust_scoring.trust_scoring_engine import TrustScoringEngine
+from src.trust_scoring.trust_scoring_engine_v2 import TrustScoringEngine
 from src.orchestration.workflow_manager import WorkflowManager
 from src.orchestration.metrics_aggregator import MetricsAggregator
 from src.data_models.evaluation import EvaluationDataset, EvaluationExample
-from src.data_models.model_response import ModelResponse
+from src.data_models.model_response import (
+    ModelResponse,
+    TrustScore,
+    TrustScoreComponents,
+    HallucinationAnalysis,
+)
+from src.data_models.trust_score import TrustDimension
 from src.data_models.results import (
     EvaluationResult,
     BaselineEvaluationResult,
@@ -127,6 +134,8 @@ class EvaluationOrchestrator:
 
             # Step 2-4: Process each example
             evaluation_results: List[EvaluationResult] = []
+            consecutive_failures = 0
+            max_consecutive_failures = 3
 
             for idx, example in enumerate(dataset.examples):
                 logger.info(
@@ -141,6 +150,7 @@ class EvaluationOrchestrator:
                         example_idx=idx
                     )
                     evaluation_results.append(result)
+                    consecutive_failures = 0  # Reset on success
 
                     # Log progress every 10 examples
                     if (idx + 1) % 10 == 0:
@@ -150,11 +160,17 @@ class EvaluationOrchestrator:
                         )
 
                 except Exception as e:
+                    consecutive_failures += 1
                     logger.error(
                         f"Failed to evaluate example {idx}: {e}",
                         exc_info=True
                     )
-                    # Continue with remaining examples
+                    if consecutive_failures >= max_consecutive_failures:
+                        logger.error(
+                            f"Stopping early: {max_consecutive_failures} "
+                            f"consecutive failures. Last error: {e}"
+                        )
+                        break
                     continue
 
             logger.info(
@@ -852,8 +868,34 @@ class EvaluationOrchestrator:
             dataset_data = self.s3_storage.download_dataset(dataset_s3_uri)
             content = dataset_data['content']
 
-            # Parse JSON
-            dataset_dict = json.loads(content)
+            # Try JSON first, then JSONL, then raw list
+            dataset_dict = None
+            try:
+                parsed = json.loads(content)
+                if isinstance(parsed, dict):
+                    # Standard EvaluationDataset JSON format
+                    dataset_dict = parsed
+                elif isinstance(parsed, list):
+                    # Plain JSON array of examples
+                    dataset_dict = {
+                        'dataset_id': 'uploaded',
+                        'name': 'Uploaded Dataset',
+                        'examples': parsed,
+                    }
+            except json.JSONDecodeError:
+                pass
+
+            if dataset_dict is None:
+                # Try JSONL (one JSON object per line)
+                lines = [l.strip() for l in content.strip().split('\n') if l.strip()]
+                examples = []
+                for line in lines:
+                    examples.append(json.loads(line))
+                dataset_dict = {
+                    'dataset_id': 'uploaded',
+                    'name': 'Uploaded Dataset',
+                    'examples': examples,
+                }
 
             # Convert to EvaluationDataset
             dataset = EvaluationDataset.from_dict(dataset_dict)
@@ -913,18 +955,54 @@ class EvaluationOrchestrator:
                 }
             )
 
-            # Step 2: Calculate trust score
-            trust_score = self.trust_scoring.calculate_trust_score(
-                response=inference_result['response_text'],
-                prompt=example.prompt,
-                source_documents=example.source_documents,
-                expected_schema=None
+            # Step 2: Score response using V2 engine (async → sync bridge)
+            v2_result = asyncio.run(
+                self.trust_scoring.score_response(
+                    prompt=example.prompt,
+                    response=inference_result['response_text'],
+                    source_documents=example.source_documents,
+                )
             )
 
-            # Step 3: Detect hallucinations
-            hallucination_analysis = self.trust_scoring.detect_hallucinations(
-                response=inference_result['response_text'],
-                source_documents=example.source_documents
+            # Step 3: Adapt V2 TrustScoreResult → V1 TrustScore for backward compat
+            context_grounding_score = (
+                v2_result.dimension_scores[TrustDimension.CONTEXT_GROUNDING].score
+                if TrustDimension.CONTEXT_GROUNDING in v2_result.dimension_scores
+                else 0.5
+            )
+            accuracy_score = (
+                v2_result.dimension_scores[TrustDimension.ACCURACY].score
+                if TrustDimension.ACCURACY in v2_result.dimension_scores
+                else 0.5
+            )
+
+            if v2_result.overall_score >= 0.8:
+                confidence_level = "high"
+            elif v2_result.overall_score >= 0.6:
+                confidence_level = "medium"
+            else:
+                confidence_level = "low"
+
+            trust_score = TrustScore(
+                overall_score=v2_result.overall_score,
+                components=TrustScoreComponents(
+                    context_grounding=context_grounding_score,
+                    output_structure=0.5,
+                    uncertainty_indicators=0.5,
+                    factual_consistency=0.5,
+                    response_completeness=accuracy_score,
+                ),
+                confidence_level=confidence_level,
+                flagged_for_review=v2_result.flagged_for_review,
+                explanation=v2_result.explanation,
+            )
+
+            # Step 4: Build HallucinationAnalysis from V2 context grounding
+            hallucination_analysis = HallucinationAnalysis(
+                has_hallucinations=v2_result.flagged_for_review,
+                hallucination_rate=0.0,
+                flagged_spans=[],
+                overall_grounding_score=context_grounding_score,
             )
 
             # Determine if example passed (trust score above threshold)

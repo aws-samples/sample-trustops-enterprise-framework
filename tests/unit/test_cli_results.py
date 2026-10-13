@@ -49,7 +49,7 @@ class TestResultsGet:
     @patch("cli.commands.results._get_results_store")
     def test_get_text_output(self, mock_get_store):
         store = MagicMock()
-        store.get = AsyncMock(return_value=_make_eval_result())
+        store.get_result = MagicMock(return_value=_make_eval_result())
         mock_get_store.return_value = store
 
         runner = CliRunner()
@@ -62,7 +62,7 @@ class TestResultsGet:
     @patch("cli.commands.results._get_results_store")
     def test_get_json_output(self, mock_get_store):
         store = MagicMock()
-        store.get = AsyncMock(return_value=_make_eval_result())
+        store.get_result = MagicMock(return_value=_make_eval_result())
         mock_get_store.return_value = store
 
         runner = CliRunner()
@@ -78,7 +78,7 @@ class TestResultsGet:
     @patch("cli.commands.results._get_results_store")
     def test_get_yaml_output(self, mock_get_store):
         store = MagicMock()
-        store.get = AsyncMock(return_value=_make_eval_result())
+        store.get_result = MagicMock(return_value=_make_eval_result())
         mock_get_store.return_value = store
 
         runner = CliRunner()
@@ -93,7 +93,7 @@ class TestResultsGet:
     @patch("cli.commands.results._get_results_store")
     def test_get_not_found(self, mock_get_store):
         store = MagicMock()
-        store.get = AsyncMock(return_value=None)
+        store.get_result = MagicMock(return_value=None)
         mock_get_store.return_value = store
 
         runner = CliRunner()
@@ -112,7 +112,7 @@ class TestResultsExport:
     @patch("cli.commands.results._get_results_store")
     def test_export_text_output(self, mock_get_store):
         store = MagicMock()
-        store.export = AsyncMock(
+        store.export_result = MagicMock(
             return_value="/tmp/eval-abc123.json"
         )
         mock_get_store.return_value = store
@@ -128,7 +128,7 @@ class TestResultsExport:
     @patch("cli.commands.results._get_results_store")
     def test_export_json_output(self, mock_get_store):
         store = MagicMock()
-        store.export = AsyncMock(
+        store.export_result = MagicMock(
             return_value="/tmp/eval-abc123.csv"
         )
         mock_get_store.return_value = store
@@ -148,7 +148,7 @@ class TestResultsExport:
     @patch("cli.commands.results._get_results_store")
     def test_export_with_output_path(self, mock_get_store):
         store = MagicMock()
-        store.export = AsyncMock(return_value="/custom/path.pdf")
+        store.export_result = MagicMock(return_value="/custom/path.pdf")
         mock_get_store.return_value = store
 
         runner = CliRunner()
@@ -169,7 +169,7 @@ class TestResultsCompare:
     @patch("cli.commands.results._get_results_store")
     def test_compare_text_output(self, mock_get_store):
         store = MagicMock()
-        store.compare = AsyncMock(return_value={
+        store.compare_results = MagicMock(return_value={
             "evaluation_1": "eval-001",
             "evaluation_2": "eval-002",
             "trust_score_delta": 0.08,
@@ -193,7 +193,7 @@ class TestResultsCompare:
             "evaluation_2": "eval-002",
             "trust_score_delta": 0.08,
         }
-        store.compare = AsyncMock(return_value=comparison_data)
+        store.compare_results = MagicMock(return_value=comparison_data)
         mock_get_store.return_value = store
 
         runner = CliRunner()
@@ -213,7 +213,7 @@ class TestResultsCompare:
             "evaluation_2": "eval-002",
             "trust_score_delta": 0.08,
         }
-        store.compare = AsyncMock(return_value=comparison_data)
+        store.compare_results = MagicMock(return_value=comparison_data)
         mock_get_store.return_value = store
 
         runner = CliRunner()

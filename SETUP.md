@@ -6,7 +6,7 @@ This guide walks you through setting up the TrustOps AWS Demo project from scrat
 
 ### Required Software
 
-- **Python 3.9+**: Check with `python3 --version`
+- **Python 3.11+**: Check with `python3 --version`
 - **AWS CLI**: Install from https://aws.amazon.com/cli/
 - **Git**: For version control
 - **Make**: For running common tasks (optional but recommended)
@@ -38,7 +38,7 @@ Your AWS user/role needs permissions for:
 
 ```bash
 # Navigate to project directory
-cd trustops-aws-demo
+cd trustops-enterprise-framework
 
 # Create and activate virtual environment
 python3 -m venv venv
@@ -158,7 +158,7 @@ All checks should pass before proceeding.
 
 Semantic similarity and evidence retrieval are backed by Amazon Bedrock
 Knowledge Bases. Without one configured, `SemanticSimilarityAnalyzer` and
-`KnowledgeBaseClient` run in mock mode, which is fine for local development
+`KnowledgeBaseClient` run in standalone mode, which is fine for local development
 and for the full test suite.
 
 To enable real retrieval, create a Knowledge Base with an S3 data source
@@ -256,19 +256,21 @@ TRUSTOPS_DATASETS_BUCKET=trustops-datasets-<YOUR_ACCOUNT_ID>-<REGION>
 3. Check service limits in your AWS account
 4. Delete the failed stack and retry:
 ```bash
-aws cloudformation delete-stack --stack-name trustops-infrastructure-dev
+aws cloudformation delete-stack --stack-name trustops-dev-<DEPLOYMENT_ID>
 ```
+
+> **Note**: Find your stack name with `aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE --query "StackSummaries[?starts_with(StackName,'trustops-')].StackName"`, or run `infrastructure/cleanup.sh` which auto-discovers it.
 
 ### Issue: Python version too old
 
-**Solution**: Install Python 3.9 or higher:
+**Solution**: Install Python 3.11 or higher:
 ```bash
 # On Ubuntu/Debian
 sudo apt update
-sudo apt install python3.9
+sudo apt install python3.11
 
 # On macOS with Homebrew
-brew install python@3.9
+brew install python@3.11
 ```
 
 ## Next Steps
@@ -276,27 +278,23 @@ brew install python@3.9
 After successful setup:
 
 1. **Review the documentation**:
-   - [Requirements](.kiro/specs/trustops-aws-demo/requirements.md)
-   - [Design](.kiro/specs/trustops-aws-demo/design.md)
-   - [Tasks](.kiro/specs/trustops-aws-demo/tasks.md)
+   - [Framework Overview](docs/FRAMEWORK_OVERVIEW.md)
+   - [Getting Started](docs/GETTING_STARTED.md)
+   - [End-to-End Runbook](docs/END_TO_END_RUNBOOK.md)
 
-2. **Start implementing features**: Follow the task list in `tasks.md`
+2. **Run a baseline evaluation**: `trustops baseline --model-id amazon.nova-lite-v1:0 --dataset s3://<bucket>/eval/qa_sample.jsonl`
 
-3. **Run the demo**: Once implementation is complete, run the demo workflow
+3. **Compare models**: `trustops foundation-compare --model-id-1 amazon.nova-lite-v1:0 --model-id-2 amazon.nova-pro-v1:0 --dataset s3://<bucket>/eval/qa_sample.jsonl`
 
-4. **Explore the dashboard**: Set up QuickSight for visualization
+4. **Explore the dashboard**: `make run-dashboard` (Streamlit on http://localhost:8501)
 
 ## Cleanup
 
 To remove all AWS resources:
 
 ```bash
-# Delete CloudFormation stack
-aws cloudformation delete-stack --stack-name trustops-infrastructure-dev
-
-# Empty and delete S3 buckets (if needed)
-aws s3 rm s3://your-bucket-name --recursive
-aws s3 rb s3://your-bucket-name
+# Use the cleanup script (auto-discovers the stack and empties buckets)
+cd infrastructure && ./cleanup.sh
 ```
 
 If you provisioned the Bedrock Knowledge Base with Terraform, tear it down

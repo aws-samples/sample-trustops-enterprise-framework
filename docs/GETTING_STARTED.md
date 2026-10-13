@@ -65,14 +65,14 @@ This walkthrough demonstrates the core evaluate → fine-tune → compare loop.
 trustops models list
 
 # Check model details
-trustops models info --model-id anthropic.claude-v2
+trustops models info amazon.nova-lite-v1:0
 ```
 
 ### 2. Upload a dataset
 
 ```bash
 # Upload a sample QA dataset
-trustops datasets upload demo/sample_data/qa_dataset.jsonl \
+trustops datasets upload demo/sample_data/qa_sample.jsonl \
   --name "QA Evaluation Set" \
   --task-type qa
 ```
@@ -82,8 +82,8 @@ trustops datasets upload demo/sample_data/qa_dataset.jsonl \
 ```bash
 # Evaluate a model against the dataset
 trustops evaluate baseline \
-  --model-id anthropic.claude-v2 \
-  --dataset-id <dataset-id>
+  --model amazon.nova-lite-v1:0 \
+  --dataset <dataset-id>
 ```
 
 ### 4. Fine-tune a model
@@ -91,12 +91,12 @@ trustops evaluate baseline \
 ```bash
 # Start fine-tuning with default hyperparameters
 trustops finetune start \
-  --model-id amazon.titan-text-express-v1 \
-  --dataset-id <dataset-id> \
-  --job-name my-first-finetune
+  --model amazon.nova-lite-v1:0 \
+  --dataset <dataset-id> \
+  --num-examples 100
 
 # Monitor progress
-trustops finetune status --job-id <job-id>
+trustops finetune status <job-id>
 ```
 
 ### 5. Compare baseline vs fine-tuned
@@ -104,19 +104,19 @@ trustops finetune status --job-id <job-id>
 ```bash
 # Run comparative evaluation
 trustops evaluate compare \
-  --baseline-model-id anthropic.claude-v2 \
-  --finetuned-model-id <finetuned-model-id> \
-  --dataset-id <dataset-id>
+  --model-1 amazon.nova-lite-v1:0 \
+  --model-2 <finetuned-model-id> \
+  --dataset <dataset-id>
 ```
 
 ### 6. View results
 
 ```bash
-# List evaluation results
-trustops results list
+# Retrieve evaluation results
+trustops results get <evaluation-id>
 
 # Export a report
-trustops results export --evaluation-id <eval-id> --format json
+trustops results export <evaluation-id> --export-format json
 ```
 
 ## Running the Dashboard

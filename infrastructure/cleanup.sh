@@ -49,17 +49,51 @@ confirm_cleanup() {
     fi
 }
 
-# Empty S3 buckets before deletion
+# Auto-discover the active TrustOps CloudFormation stack
+find_stack() {
+    DEPLOYMENT_ID="${DEPLOYMENT_ID:-}"
+    if [ -n "${DEPLOYMENT_ID}" ]; then
+        STACK_NAME="${PROJECT_NAME}-${ENVIRONMENT}-${DEPLOYMENT_ID}"
+    else
+        STACK_NAME=$(aws cloudformation list-stacks --region "${AWS_REGION}" \
+            --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE \
+            --query "StackSummaries[?starts_with(StackName, '${PROJECT_NAME}-${ENVIRONMENT}-')].StackName | sort(@) | [-1]" \
+            --output text 2>/dev/null)
+    fi
+    
+    if [ -z "${STACK_NAME}" ] || [ "${STACK_NAME}" = "None" ]; then
+        log_error "No active TrustOps CloudFormation stack found."
+        exit 1
+    fi
+    
+    log_info "Found stack: ${STACK_NAME}"
+}
+
+# Helper to read a stack output by key
+get_output() {
+    aws cloudformation describe-stacks --stack-name "${STACK_NAME}" --region "${AWS_REGION}" \
+        --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text 2>/dev/null
+}
+
+# Empty S3 buckets before deletion (reads names from stack outputs)
 empty_s3_buckets() {
     log_info "Emptying S3 buckets..."
     
-    ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    BUCKETS=()
+    for key in DatasetsBucketName ResultsBucketName ArtifactsBucketName; do
+        BUCKET=$(get_output "${key}")
+        if [ -n "${BUCKET}" ] && [ "${BUCKET}" != "None" ]; then
+            BUCKETS+=("${BUCKET}")
+        fi
+    done
     
-    BUCKETS=(
-        "${PROJECT_NAME}-datasets-${ENVIRONMENT}-${ACCOUNT_ID}"
-        "${PROJECT_NAME}-results-${ENVIRONMENT}-${ACCOUNT_ID}"
-        "${PROJECT_NAME}-artifacts-${ENVIRONMENT}-${ACCOUNT_ID}"
-    )
+    # Also check for the access-logs bucket (not in outputs, derive from naming convention)
+    ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    STACK_DEPLOY_ID=$(echo "${STACK_NAME}" | awk -F- '{print $NF}')
+    ACCESS_LOGS_BUCKET="${PROJECT_NAME}-access-logs-${ENVIRONMENT}-${STACK_DEPLOY_ID}-${ACCOUNT_ID}"
+    if aws s3 ls "s3://${ACCESS_LOGS_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
+        BUCKETS+=("${ACCESS_LOGS_BUCKET}")
+    fi
     
     for BUCKET in "${BUCKETS[@]}"; do
         if aws s3 ls "s3://${BUCKET}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
@@ -92,7 +126,7 @@ empty_s3_buckets() {
 cleanup_cloudformation() {
     log_info "Cleaning up infrastructure using CloudFormation..."
     
-    STACK_NAME="${PROJECT_NAME}-${ENVIRONMENT}"
+    # STACK_NAME is already set by find_stack()
     
     # Check if stack exists
     if aws cloudformation describe-stacks --stack-name "${STACK_NAME}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
@@ -110,6 +144,14 @@ cleanup_cloudformation() {
         log_info "CloudFormation stack deleted successfully."
     else
         log_warn "CloudFormation stack not found: ${STACK_NAME}"
+    fi
+    
+    # Also clean up the CFN staging bucket if it exists
+    ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    CFN_BUCKET="${PROJECT_NAME}-cfn-deploy-${ACCOUNT_ID}"
+    if aws s3 ls "s3://${CFN_BUCKET}" --region "${AWS_REGION}" 2>/dev/null; then
+        log_info "Cleaning up CFN staging bucket: ${CFN_BUCKET}"
+        aws s3 rb "s3://${CFN_BUCKET}" --force --region "${AWS_REGION}" 2>/dev/null || true
     fi
 }
 
@@ -168,6 +210,9 @@ main() {
     
     # Confirm cleanup
     confirm_cleanup
+    
+    # Discover the deployed stack
+    find_stack
     
     # Empty S3 buckets first
     empty_s3_buckets

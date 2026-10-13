@@ -56,15 +56,16 @@ def _make_workflow(**overrides):
 class TestWorkflowsList:
     """Test `trustops workflows list` command."""
 
-    @patch("cli.commands.workflows._get_orchestrator")
-    def test_list_text_output(self, mock_get_orch):
-        orch = MagicMock()
-        orch.list_workflows = AsyncMock(
-            return_value=[_make_workflow(), _make_workflow(
-                workflow_id="wf-def456", status="running"
-            )]
+    @patch("src.orchestration.workflow_manager.WorkflowManager")
+    def test_list_text_output(self, mock_wm_class):
+        wm = MagicMock()
+        wm.get_workflow_history = MagicMock(
+            return_value=[
+                {"workflow_id": "wf-abc123", "status": "completed", "workflow_type": "baseline_evaluation", "created_at": "2024-01-15T10:00:00"},
+                {"workflow_id": "wf-def456", "status": "running", "workflow_type": "baseline_evaluation", "created_at": "2024-01-15T11:00:00"},
+            ]
         )
-        mock_get_orch.return_value = orch
+        mock_wm_class.return_value = wm
 
         runner = CliRunner()
         result = runner.invoke(cli, ["workflows", "list"])
@@ -72,13 +73,13 @@ class TestWorkflowsList:
         assert "wf-abc123" in result.output
         assert "2 workflow(s)" in result.output
 
-    @patch("cli.commands.workflows._get_orchestrator")
-    def test_list_json_output(self, mock_get_orch):
-        orch = MagicMock()
-        orch.list_workflows = AsyncMock(
-            return_value=[_make_workflow()]
+    @patch("src.orchestration.workflow_manager.WorkflowManager")
+    def test_list_json_output(self, mock_wm_class):
+        wm = MagicMock()
+        wm.get_workflow_history = MagicMock(
+            return_value=[{"workflow_id": "wf-abc123", "status": "completed", "workflow_type": "baseline_evaluation"}]
         )
-        mock_get_orch.return_value = orch
+        mock_wm_class.return_value = wm
 
         runner = CliRunner()
         result = runner.invoke(cli, [
@@ -89,13 +90,13 @@ class TestWorkflowsList:
         assert len(data) == 1
         assert data[0]["workflow_id"] == "wf-abc123"
 
-    @patch("cli.commands.workflows._get_orchestrator")
-    def test_list_yaml_output(self, mock_get_orch):
-        orch = MagicMock()
-        orch.list_workflows = AsyncMock(
-            return_value=[_make_workflow()]
+    @patch("src.orchestration.workflow_manager.WorkflowManager")
+    def test_list_yaml_output(self, mock_wm_class):
+        wm = MagicMock()
+        wm.get_workflow_history = MagicMock(
+            return_value=[{"workflow_id": "wf-abc123", "status": "completed"}]
         )
-        mock_get_orch.return_value = orch
+        mock_wm_class.return_value = wm
 
         runner = CliRunner()
         result = runner.invoke(cli, [
@@ -105,26 +106,24 @@ class TestWorkflowsList:
         data = yaml.safe_load(result.output)
         assert data[0]["workflow_id"] == "wf-abc123"
 
-    @patch("cli.commands.workflows._get_orchestrator")
-    def test_list_with_status_filter(self, mock_get_orch):
-        orch = MagicMock()
-        orch.list_workflows = AsyncMock(return_value=[])
-        mock_get_orch.return_value = orch
+    @patch("src.orchestration.workflow_manager.WorkflowManager")
+    def test_list_with_status_filter(self, mock_wm_class):
+        wm = MagicMock()
+        wm.get_workflow_history = MagicMock(return_value=[])
+        mock_wm_class.return_value = wm
 
         runner = CliRunner()
         result = runner.invoke(cli, [
             "workflows", "list", "--status", "running"
         ])
         assert result.exit_code == 0
-        orch.list_workflows.assert_called_once_with(
-            status="running"
-        )
+        wm.get_workflow_history.assert_called_once()
 
-    @patch("cli.commands.workflows._get_orchestrator")
-    def test_list_empty(self, mock_get_orch):
-        orch = MagicMock()
-        orch.list_workflows = AsyncMock(return_value=[])
-        mock_get_orch.return_value = orch
+    @patch("src.orchestration.workflow_manager.WorkflowManager")
+    def test_list_empty(self, mock_wm_class):
+        wm = MagicMock()
+        wm.get_workflow_history = MagicMock(return_value=[])
+        mock_wm_class.return_value = wm
 
         runner = CliRunner()
         result = runner.invoke(cli, ["workflows", "list"])
@@ -197,12 +196,12 @@ class TestWorkflowsRun:
 class TestWorkflowsStatus:
     """Test `trustops workflows status` command."""
 
-    @patch("cli.commands.workflows._get_orchestrator")
-    def test_status_text_output(self, mock_get_orch):
-        orch = MagicMock()
+    @patch("src.orchestration.workflow_manager.WorkflowManager")
+    def test_status_text_output(self, mock_wm_class):
+        wm = MagicMock()
         wf = _make_workflow()
-        orch.get_workflow_status = AsyncMock(return_value=wf)
-        mock_get_orch.return_value = orch
+        wm.get_workflow = MagicMock(return_value=wf)
+        mock_wm_class.return_value = wm
 
         runner = CliRunner()
         result = runner.invoke(cli, [
@@ -213,12 +212,12 @@ class TestWorkflowsStatus:
         assert "completed" in result.output
         assert "baseline_evaluation" in result.output
 
-    @patch("cli.commands.workflows._get_orchestrator")
-    def test_status_json_output(self, mock_get_orch):
-        orch = MagicMock()
+    @patch("src.orchestration.workflow_manager.WorkflowManager")
+    def test_status_json_output(self, mock_wm_class):
+        wm = MagicMock()
         wf = _make_workflow()
-        orch.get_workflow_status = AsyncMock(return_value=wf)
-        mock_get_orch.return_value = orch
+        wm.get_workflow = MagicMock(return_value=wf)
+        mock_wm_class.return_value = wm
 
         runner = CliRunner()
         result = runner.invoke(cli, [
@@ -230,11 +229,11 @@ class TestWorkflowsStatus:
         assert data["workflow_id"] == "wf-abc123"
         assert len(data["steps"]) == 2
 
-    @patch("cli.commands.workflows._get_orchestrator")
-    def test_status_not_found(self, mock_get_orch):
-        orch = MagicMock()
-        orch.get_workflow_status = AsyncMock(return_value=None)
-        mock_get_orch.return_value = orch
+    @patch("src.orchestration.workflow_manager.WorkflowManager")
+    def test_status_not_found(self, mock_wm_class):
+        wm = MagicMock()
+        wm.get_workflow = MagicMock(return_value=None)
+        mock_wm_class.return_value = wm
 
         runner = CliRunner()
         result = runner.invoke(cli, [

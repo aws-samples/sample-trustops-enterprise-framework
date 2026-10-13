@@ -35,7 +35,7 @@ def analyzer(mock_bedrock_runtime, mock_kb_client):
     with patch('src.aws_clients.semantic_similarity_analyzer.config') as mock_config, \
          patch('src.aws_clients.semantic_similarity_analyzer.KnowledgeBaseClient') as mock_kb_class:
 
-        mock_config.default_embedding_model = 'amazon.titan-embed-text-v1'
+        mock_config.default_embedding_model = 'amazon.titan-embed-text-v2:0'
         mock_config.get_boto3_session_kwargs.return_value = {'region_name': 'us-east-1'}
 
         mock_kb_class.return_value = mock_kb_client
@@ -70,7 +70,7 @@ class TestGenerateEmbedding:
         
         # Verify the call
         call_args = mock_bedrock_runtime.invoke_model.call_args
-        assert call_args[1]['modelId'] == 'amazon.titan-embed-text-v1'
+        assert call_args[1]['modelId'] == 'amazon.titan-embed-text-v2:0'
         
         body = json.loads(call_args[1]['body'])
         assert body['inputText'] == text

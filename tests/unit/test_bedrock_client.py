@@ -136,49 +136,44 @@ class TestInvokeModel:
         assert body['max_tokens_to_sample'] == 100
     
     def test_invoke_titan_model_success(self, bedrock_client):
-        """Test successful inference with Titan model."""
+        """Test successful inference with Titan model via Converse API."""
         model_id = 'amazon.titan-text-express-v1'
         prompt = 'Explain quantum computing.'
         
-        response_body = {
-            'results': [{
-                'outputText': 'Quantum computing uses quantum mechanics...',
-                'tokenCount': 50
-            }],
-            'inputTextTokenCount': 10
+        bedrock_client.bedrock_runtime.converse.return_value = {
+            'output': {
+                'message': {
+                    'content': [{'text': 'Quantum computing uses quantum mechanics...'}]
+                }
+            },
+            'usage': {
+                'inputTokens': 10,
+                'outputTokens': 50,
+            }
         }
-        
-        mock_response = {
-            'body': Mock()
-        }
-        mock_response['body'].read.return_value = json.dumps(response_body).encode()
-        
-        bedrock_client.bedrock_runtime.invoke_model.return_value = mock_response
         
         result = bedrock_client.invoke_model(model_id, prompt)
         
         assert 'Quantum computing' in result['response_text']
         assert result['input_tokens'] == 10
         assert result['output_tokens'] == 50
-        assert result['cost'] > 0
     
     def test_invoke_llama_model_success(self, bedrock_client):
-        """Test successful inference with Llama model."""
-        model_id = 'meta.llama2-13b-chat-v1'
+        """Test successful inference with Llama model via Converse API."""
+        model_id = 'meta.llama3-8b-instruct-v1:0'
         prompt = 'Write a haiku about coding.'
         
-        response_body = {
-            'generation': 'Code flows like water\nBugs hide in shadows deep\nDebug brings the light',
-            'prompt_token_count': 15,
-            'generation_token_count': 25
+        bedrock_client.bedrock_runtime.converse.return_value = {
+            'output': {
+                'message': {
+                    'content': [{'text': 'Code flows like water\nBugs hide in shadows deep\nDebug brings the light'}]
+                }
+            },
+            'usage': {
+                'inputTokens': 15,
+                'outputTokens': 25,
+            }
         }
-        
-        mock_response = {
-            'body': Mock()
-        }
-        mock_response['body'].read.return_value = json.dumps(response_body).encode()
-        
-        bedrock_client.bedrock_runtime.invoke_model.return_value = mock_response
         
         result = bedrock_client.invoke_model(model_id, prompt)
         

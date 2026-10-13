@@ -81,6 +81,14 @@ def _load_workflows_data() -> dict[str, Any]:
         data["workflows"] = _build_demo_workflows()
         data["demo_mode"] = True
 
+    # Try loading real workflow data from DynamoDB if still using demo data
+    if data.get("demo_mode"):
+        from dashboard.utils.backend import list_dynamodb_workflows
+        ddb_workflows = list_dynamodb_workflows()
+        if ddb_workflows:
+            data["workflows"] = ddb_workflows
+            data["demo_mode"] = False
+
     return data
 
 

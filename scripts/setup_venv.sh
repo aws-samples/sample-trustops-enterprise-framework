@@ -10,13 +10,13 @@ echo "========================================="
 
 # Check Python version
 PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
-REQUIRED_VERSION="3.9"
+REQUIRED_VERSION="3.11"
 
 echo "Detected Python version: ${PYTHON_VERSION}"
 
 # Simple version check
-if ! python3 -c "import sys; exit(0 if sys.version_info >= (3, 9) else 1)"; then
-    echo "Error: Python 3.9 or higher is required"
+if ! python3 -c "import sys; exit(0 if sys.version_info >= (3, 11) else 1)"; then
+    echo "Error: Python 3.11 or higher is required"
     exit 1
 fi
 
@@ -55,6 +55,23 @@ if [ $? -eq 0 ]; then
 else
     echo "✗ Failed to install dependencies"
     exit 1
+fi
+
+# Install TrustOps CLI in development mode
+echo "Installing TrustOps CLI..."
+pip install -e .
+
+if [ $? -eq 0 ]; then
+    echo "✓ TrustOps CLI installed (run 'trustops --help' to verify)"
+else
+    echo "✗ Failed to install TrustOps CLI"
+    exit 1
+fi
+
+# Copy env.example to .env if it doesn't exist
+if [ ! -f .env ] && [ -f infrastructure/env.example ]; then
+    cp infrastructure/env.example .env
+    echo "✓ Created .env from infrastructure/env.example"
 fi
 
 echo ""

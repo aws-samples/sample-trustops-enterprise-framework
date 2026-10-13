@@ -15,15 +15,44 @@ from botocore.exceptions import ClientError
 SUPPORTED_MODEL_PATTERNS = {
     'anthropic': r'^anthropic\.claude-.*',
     'amazon': r'^amazon\.(titan|nova)-.*',
-    'meta': r'^meta\.llama.*'
+    'meta': r'^meta\.llama.*',
+    'mistral': r'^mistral\..*',
+    'cohere': r'^cohere\..*',
+    'ai21': r'^ai21\..*',
+    'deepseek': r'^deepseek\..*',
+    'writer': r'^writer\..*',
+    'google': r'^google\..*',
+    'nvidia': r'^nvidia\..*',
+    'openai': r'^openai\..*',
+    'minimax': r'^minimax\..*',
+    'moonshotai': r'^moonshotai\..*',
+    'moonshot': r'^moonshot\..*',
+    'xai': r'^xai\..*',
+    'qwen': r'^qwen\..*',
+    'zai': r'^zai\..*',
+    'twelvelabs': r'^twelvelabs\..*',
 }
 
-# Model family information. Amazon spans Titan and Nova; the family label is
-# refined per model in get_model_metadata().
+# Model family information.
 MODEL_FAMILIES = {
     'anthropic': 'Anthropic Claude',
     'amazon': 'Amazon Titan / Nova',
-    'meta': 'Meta Llama'
+    'meta': 'Meta Llama',
+    'mistral': 'Mistral AI',
+    'cohere': 'Cohere',
+    'ai21': 'AI21 Labs',
+    'deepseek': 'DeepSeek',
+    'writer': 'Writer',
+    'google': 'Google',
+    'nvidia': 'NVIDIA',
+    'openai': 'OpenAI',
+    'minimax': 'MiniMax',
+    'moonshotai': 'Moonshot AI',
+    'moonshot': 'Moonshot',
+    'xai': 'xAI',
+    'qwen': 'Qwen',
+    'zai': 'Zhipu AI',
+    'twelvelabs': 'Twelve Labs',
 }
 
 

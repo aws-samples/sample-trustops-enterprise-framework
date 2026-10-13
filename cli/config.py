@@ -81,10 +81,10 @@ def get_default_config() -> Dict[str, Any]:
         },
         'models': {
             'default_embedding_model': os.getenv(
-                'DEFAULT_EMBEDDING_MODEL', 'amazon.titan-embed-text-v1'
+                'DEFAULT_EMBEDDING_MODEL', 'amazon.titan-embed-text-v2:0'
             ),
             'default_foundation_model': os.getenv(
-                'DEFAULT_FOUNDATION_MODEL', 'anthropic.claude-v2'
+                'DEFAULT_FOUNDATION_MODEL', 'amazon.nova-lite-v1:0'
             )
         }
     }

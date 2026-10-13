@@ -178,51 +178,33 @@ class TestBedrockAdapterListModels:
 
     @pytest.mark.asyncio
     async def test_list_models_success(self, bedrock_adapter, mock_bedrock_client):
-        """Test successful model listing."""
-        # Mock list_foundation_models response
+        """Test successful model listing from summary data."""
         mock_bedrock_client.bedrock.list_foundation_models.return_value = {
             'modelSummaries': [
                 {
                     'modelId': 'anthropic.claude-v2',
-                    'inferenceTypesSupported': ['CHAT', 'TEXT_GENERATION'],
-                    'customizationsSupported': ['FINE_TUNING']
+                    'modelName': 'Claude v2',
+                    'providerName': 'Anthropic',
+                    'modelArn': 'arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2',
+                    'inputModalities': ['TEXT'],
+                    'outputModalities': ['TEXT'],
+                    'inferenceTypesSupported': ['ON_DEMAND'],
+                    'customizationsSupported': ['FINE_TUNING'],
+                    'responseStreamingSupported': True,
+                    'modelLifecycle': {'status': 'ACTIVE'},
                 },
                 {
                     'modelId': 'amazon.titan-text-express-v1',
-                    'inferenceTypesSupported': ['TEXT_GENERATION'],
-                    'customizationsSupported': []
+                    'modelName': 'Titan Text Express',
+                    'providerName': 'Amazon',
+                    'inputModalities': ['TEXT'],
+                    'outputModalities': ['TEXT'],
+                    'inferenceTypesSupported': ['ON_DEMAND'],
+                    'customizationsSupported': [],
+                    'modelLifecycle': {'status': 'ACTIVE'},
                 }
             ]
         }
-
-        # Mock get_model_config responses
-        def mock_get_config(model_id):
-            if model_id == 'anthropic.claude-v2':
-                return {
-                    'model_name': 'Claude v2',
-                    'provider_name': 'Anthropic',
-                    'model_arn': 'arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2',
-                    'input_modalities': ['text'],
-                    'output_modalities': ['text'],
-                    'response_streaming_supported': True,
-                    'customizations_supported': ['FINE_TUNING'],
-                    'inference_types_supported': ['CHAT', 'TEXT_GENERATION'],
-                    'pricing': {'input': 0.008, 'output': 0.024}
-                }
-            elif model_id == 'amazon.titan-text-express-v1':
-                return {
-                    'model_name': 'Titan Text Express',
-                    'provider_name': 'Amazon',
-                    'model_arn': 'arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-text-express-v1',
-                    'input_modalities': ['text'],
-                    'output_modalities': ['text'],
-                    'response_streaming_supported': False,
-                    'customizations_supported': [],
-                    'inference_types_supported': ['TEXT_GENERATION'],
-                    'pricing': {'input': 0.0002, 'output': 0.0006}
-                }
-
-        mock_bedrock_client.get_model_config.side_effect = mock_get_config
 
         models = await bedrock_adapter.list_models()
 
@@ -239,8 +221,6 @@ class TestBedrockAdapterListModels:
         assert ModelCapability.FINE_TUNABLE in claude.capabilities
         assert claude.fine_tuning_support is True
         assert claude.status == ModelStatus.ACTIVE
-        assert claude.pricing.input_price_per_1k_tokens == 0.008
-        assert claude.pricing.output_price_per_1k_tokens == 0.024
 
         # Check second model (Titan)
         titan = models[1]
@@ -273,35 +253,36 @@ class TestBedrockAdapterListModels:
             await bedrock_adapter.list_models()
 
     @pytest.mark.asyncio
-    async def test_list_models_skips_failed_configs(self, bedrock_adapter, mock_bedrock_client):
-        """Test that list_models continues when individual model config fails."""
+    async def test_list_models_skips_non_text(self, bedrock_adapter, mock_bedrock_client):
+        """Test that list_models skips models without TEXT output modality."""
         mock_bedrock_client.bedrock.list_foundation_models.return_value = {
             'modelSummaries': [
-                {'modelId': 'model-1'},
-                {'modelId': 'model-2'},
+                {
+                    'modelId': 'text-model',
+                    'modelName': 'Text Model',
+                    'outputModalities': ['TEXT'],
+                    'inputModalities': ['TEXT'],
+                    'inferenceTypesSupported': ['ON_DEMAND'],
+                    'customizationsSupported': [],
+                    'modelLifecycle': {'status': 'ACTIVE'},
+                },
+                {
+                    'modelId': 'image-model',
+                    'modelName': 'Image Model',
+                    'outputModalities': ['IMAGE'],
+                    'inputModalities': ['TEXT'],
+                    'inferenceTypesSupported': ['ON_DEMAND'],
+                    'customizationsSupported': [],
+                    'modelLifecycle': {'status': 'ACTIVE'},
+                },
             ]
         }
 
-        # First model fails, second succeeds
-        def mock_get_config(model_id):
-            if model_id == 'model-1':
-                raise ValueError("Config error")
-            return {
-                'model_name': 'Model 2',
-                'provider_name': 'Test',
-                'model_arn': 'arn:test',
-                'input_modalities': ['text'],
-                'output_modalities': ['text'],
-                'pricing': {'input': 0.001, 'output': 0.002}
-            }
-
-        mock_bedrock_client.get_model_config.side_effect = mock_get_config
-
         models = await bedrock_adapter.list_models()
 
-        # Should only have the successful model
+        # Should only have the text model
         assert len(models) == 1
-        assert models[0].id == 'model-2'
+        assert models[0].id == 'text-model'
 
 
 class TestBedrockAdapterGetModelInfo:
@@ -381,8 +362,8 @@ class TestBedrockAdapterCapabilities:
 
     def test_supports_streaming(self, bedrock_adapter):
         """Test streaming support check."""
-        # Currently returns False as streaming is not fully implemented
-        assert bedrock_adapter.supports_streaming() is False
+        # Streaming is supported via invoke_stream()
+        assert bedrock_adapter.supports_streaming() is True
 
     def test_supports_fine_tuning_true(self, bedrock_adapter, mock_bedrock_client):
         """Test fine-tuning support check for supported model."""

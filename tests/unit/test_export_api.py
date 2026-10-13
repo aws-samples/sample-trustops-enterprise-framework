@@ -63,14 +63,17 @@ class TestExportToPdf:
     def test_dict_export(self):
         data = {"score": 0.95}
         result = export_to_pdf(data)
-        text = result.decode("utf-8")
-        assert "score: 0.95" in text
-        assert "TrustOps Results Export" in text
+        # Verify it's a valid PDF
+        text = result.decode("latin-1")
+        assert text.startswith("%PDF-")
+        assert "%%EOF" in text
+        assert "score" in text
 
     def test_list_export(self):
         data = [{"a": 1}]
         result = export_to_pdf(data)
-        text = result.decode("utf-8")
+        text = result.decode("latin-1")
+        assert text.startswith("%PDF-")
         assert "Item 1" in text
 
 
@@ -85,7 +88,7 @@ class TestExportResult:
 
     def test_pdf_format(self):
         result = export_result({"x": 1}, "pdf")
-        assert b"TrustOps" in result
+        assert result[:5] == b"%PDF-"
 
     def test_unsupported_format_raises(self):
         with pytest.raises(ValueError, match="Unsupported export format"):

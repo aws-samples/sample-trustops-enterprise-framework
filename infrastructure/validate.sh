@@ -46,13 +46,41 @@ check_fail() {
 # Get account ID
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
+# Auto-discover the active TrustOps CloudFormation stack and read outputs.
+# This ensures resource names always match the deployed stack regardless of
+# DEPLOYMENT_ID value.
+DEPLOYMENT_ID="${DEPLOYMENT_ID:-}"
+if [ -n "${DEPLOYMENT_ID}" ]; then
+    STACK_NAME="${PROJECT_NAME}-${ENVIRONMENT}-${DEPLOYMENT_ID}"
+else
+    # Find the most recent active trustops stack
+    STACK_NAME=$(aws cloudformation list-stacks --region "${AWS_REGION}" \
+        --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE \
+        --query "StackSummaries[?starts_with(StackName, '${PROJECT_NAME}-${ENVIRONMENT}-')].StackName | sort(@) | [-1]" \
+        --output text 2>/dev/null)
+fi
+
+if [ -z "${STACK_NAME}" ] || [ "${STACK_NAME}" = "None" ]; then
+    log_error "No active TrustOps CloudFormation stack found."
+    log_error "Deploy first with: cd infrastructure && ./deploy.sh"
+    exit 1
+fi
+
+log_info "Using stack: ${STACK_NAME}"
+
+# Helper to read a stack output by key
+get_output() {
+    aws cloudformation describe-stacks --stack-name "${STACK_NAME}" --region "${AWS_REGION}" \
+        --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text 2>/dev/null
+}
+
 # Validation functions
 validate_s3_buckets() {
     log_info "Validating S3 buckets..."
     
     # Check datasets bucket
-    DATASETS_BUCKET="${PROJECT_NAME}-datasets-${ENVIRONMENT}-${ACCOUNT_ID}"
-    if aws s3 ls "s3://${DATASETS_BUCKET}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
+    DATASETS_BUCKET=$(get_output DatasetsBucketName)
+    if [ -n "${DATASETS_BUCKET}" ] && aws s3 ls "s3://${DATASETS_BUCKET}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
         check_pass "Datasets bucket exists: ${DATASETS_BUCKET}"
         
         # Check versioning
@@ -63,23 +91,23 @@ validate_s3_buckets() {
             check_fail "Datasets bucket versioning not enabled"
         fi
     else
-        check_fail "Datasets bucket not found: ${DATASETS_BUCKET}"
+        check_fail "Datasets bucket not found: ${DATASETS_BUCKET:-<not in stack outputs>}"
     fi
     
     # Check results bucket
-    RESULTS_BUCKET="${PROJECT_NAME}-results-${ENVIRONMENT}-${ACCOUNT_ID}"
-    if aws s3 ls "s3://${RESULTS_BUCKET}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
+    RESULTS_BUCKET=$(get_output ResultsBucketName)
+    if [ -n "${RESULTS_BUCKET}" ] && aws s3 ls "s3://${RESULTS_BUCKET}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
         check_pass "Results bucket exists: ${RESULTS_BUCKET}"
     else
-        check_fail "Results bucket not found: ${RESULTS_BUCKET}"
+        check_fail "Results bucket not found: ${RESULTS_BUCKET:-<not in stack outputs>}"
     fi
     
     # Check artifacts bucket
-    ARTIFACTS_BUCKET="${PROJECT_NAME}-artifacts-${ENVIRONMENT}-${ACCOUNT_ID}"
-    if aws s3 ls "s3://${ARTIFACTS_BUCKET}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
+    ARTIFACTS_BUCKET=$(get_output ArtifactsBucketName)
+    if [ -n "${ARTIFACTS_BUCKET}" ] && aws s3 ls "s3://${ARTIFACTS_BUCKET}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
         check_pass "Artifacts bucket exists: ${ARTIFACTS_BUCKET}"
     else
-        check_fail "Artifacts bucket not found: ${ARTIFACTS_BUCKET}"
+        check_fail "Artifacts bucket not found: ${ARTIFACTS_BUCKET:-<not in stack outputs>}"
     fi
 }
 
@@ -87,8 +115,8 @@ validate_dynamodb_tables() {
     log_info "Validating DynamoDB tables..."
     
     # Check workflows table
-    WORKFLOWS_TABLE="${PROJECT_NAME}-workflows-${ENVIRONMENT}"
-    if aws dynamodb describe-table --table-name "${WORKFLOWS_TABLE}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
+    WORKFLOWS_TABLE=$(get_output WorkflowsTableName)
+    if [ -n "${WORKFLOWS_TABLE}" ] && aws dynamodb describe-table --table-name "${WORKFLOWS_TABLE}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
         check_pass "Workflows table exists: ${WORKFLOWS_TABLE}"
         
         # Check indexes
@@ -104,98 +132,65 @@ validate_dynamodb_tables() {
             check_fail "Workflows table missing status-index"
         fi
     else
-        check_fail "Workflows table not found: ${WORKFLOWS_TABLE}"
+        check_fail "Workflows table not found: ${WORKFLOWS_TABLE:-<not in stack outputs>}"
     fi
     
     # Check models table
-    MODELS_TABLE="${PROJECT_NAME}-models-${ENVIRONMENT}"
-    if aws dynamodb describe-table --table-name "${MODELS_TABLE}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
+    MODELS_TABLE=$(get_output ModelsTableName)
+    if [ -n "${MODELS_TABLE}" ] && aws dynamodb describe-table --table-name "${MODELS_TABLE}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
         check_pass "Models table exists: ${MODELS_TABLE}"
     else
-        check_fail "Models table not found: ${MODELS_TABLE}"
+        check_fail "Models table not found: ${MODELS_TABLE:-<not in stack outputs>}"
     fi
 }
 
 validate_lambda_functions() {
     log_info "Validating Lambda functions..."
     
-    # Check evaluation orchestrator
-    EVAL_FUNCTION="${PROJECT_NAME}-evaluation-orchestrator-${ENVIRONMENT}"
-    if aws lambda get-function --function-name "${EVAL_FUNCTION}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
-        check_pass "Evaluation orchestrator function exists: ${EVAL_FUNCTION}"
-    else
-        check_fail "Evaluation orchestrator function not found: ${EVAL_FUNCTION}"
-    fi
-    
-    # Check fine-tuning orchestrator
-    FINETUNE_FUNCTION="${PROJECT_NAME}-finetuning-orchestrator-${ENVIRONMENT}"
-    if aws lambda get-function --function-name "${FINETUNE_FUNCTION}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
-        check_pass "Fine-tuning orchestrator function exists: ${FINETUNE_FUNCTION}"
-    else
-        check_fail "Fine-tuning orchestrator function not found: ${FINETUNE_FUNCTION}"
-    fi
-    
-    # Check trust scoring
-    TRUST_FUNCTION="${PROJECT_NAME}-trust-scoring-${ENVIRONMENT}"
-    if aws lambda get-function --function-name "${TRUST_FUNCTION}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
-        check_pass "Trust scoring function exists: ${TRUST_FUNCTION}"
-    else
-        check_fail "Trust scoring function not found: ${TRUST_FUNCTION}"
-    fi
-    
-    # Check comparative evaluation
-    COMPARE_FUNCTION="${PROJECT_NAME}-comparative-evaluation-${ENVIRONMENT}"
-    if aws lambda get-function --function-name "${COMPARE_FUNCTION}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
-        check_pass "Comparative evaluation function exists: ${COMPARE_FUNCTION}"
-    else
-        check_fail "Comparative evaluation function not found: ${COMPARE_FUNCTION}"
-    fi
+    for key in EvaluationOrchestratorFunctionArn FineTuningOrchestratorFunctionArn TrustScoringFunctionArn ComparativeEvaluationFunctionArn; do
+        ARN=$(get_output "${key}")
+        if [ -n "${ARN}" ]; then
+            FUNC_NAME=$(echo "${ARN}" | awk -F: '{print $NF}')
+            if aws lambda get-function --function-name "${FUNC_NAME}" --region "${AWS_REGION}" 2>&1 > /dev/null; then
+                check_pass "Lambda function exists: ${FUNC_NAME}"
+            else
+                check_fail "Lambda function not found: ${FUNC_NAME}"
+            fi
+        else
+            check_fail "Lambda output not found: ${key}"
+        fi
+    done
 }
 
 validate_step_functions() {
     log_info "Validating Step Functions state machines..."
     
-    # Check baseline evaluation
-    BASELINE_SM="${PROJECT_NAME}-baseline-evaluation-${ENVIRONMENT}"
-    BASELINE_ARN="arn:aws:states:${AWS_REGION}:${ACCOUNT_ID}:stateMachine:${BASELINE_SM}"
-    if aws stepfunctions describe-state-machine --state-machine-arn "${BASELINE_ARN}" 2>&1 > /dev/null; then
-        check_pass "Baseline evaluation state machine exists: ${BASELINE_SM}"
-    else
-        check_fail "Baseline evaluation state machine not found: ${BASELINE_SM}"
-    fi
-    
-    # Check fine-tuning
-    FINETUNE_SM="${PROJECT_NAME}-fine-tuning-${ENVIRONMENT}"
-    FINETUNE_ARN="arn:aws:states:${AWS_REGION}:${ACCOUNT_ID}:stateMachine:${FINETUNE_SM}"
-    if aws stepfunctions describe-state-machine --state-machine-arn "${FINETUNE_ARN}" 2>&1 > /dev/null; then
-        check_pass "Fine-tuning state machine exists: ${FINETUNE_SM}"
-    else
-        check_fail "Fine-tuning state machine not found: ${FINETUNE_SM}"
-    fi
-    
-    # Check comparative evaluation
-    COMPARE_SM="${PROJECT_NAME}-comparative-evaluation-${ENVIRONMENT}"
-    COMPARE_ARN="arn:aws:states:${AWS_REGION}:${ACCOUNT_ID}:stateMachine:${COMPARE_SM}"
-    if aws stepfunctions describe-state-machine --state-machine-arn "${COMPARE_ARN}" 2>&1 > /dev/null; then
-        check_pass "Comparative evaluation state machine exists: ${COMPARE_SM}"
-    else
-        check_fail "Comparative evaluation state machine not found: ${COMPARE_SM}"
-    fi
+    for key in BaselineEvaluationStateMachineArn FineTuningStateMachineArn ComparativeEvaluationStateMachineArn; do
+        ARN=$(get_output "${key}")
+        if [ -n "${ARN}" ]; then
+            SM_NAME=$(echo "${ARN}" | awk -F: '{print $NF}')
+            if aws stepfunctions describe-state-machine --state-machine-arn "${ARN}" 2>&1 > /dev/null; then
+                check_pass "State machine exists: ${SM_NAME}"
+            else
+                check_fail "State machine not found: ${SM_NAME}"
+            fi
+        else
+            check_fail "Step Functions output not found: ${key}"
+        fi
+    done
 }
 
 validate_knowledge_base() {
     log_info "Validating Bedrock Knowledge Base..."
 
-    # List knowledge bases and check for the one matching our project
-    KB_NAME="${PROJECT_NAME}-kb-${ENVIRONMENT}"
+    KB_ROLE_ARN=$(get_output KnowledgeBaseRoleArn)
     KB_ID=$(aws bedrock-agent list-knowledge-bases --region "${AWS_REGION}" \
-        --query "knowledgeBaseSummaries[?name=='${KB_NAME}'].knowledgeBaseId" \
+        --query "knowledgeBaseSummaries[?contains(name, '${PROJECT_NAME}')].knowledgeBaseId | [0]" \
         --output text 2>/dev/null)
 
     if [ -n "$KB_ID" ] && [ "$KB_ID" != "None" ]; then
-        check_pass "Knowledge Base exists: ${KB_NAME} (${KB_ID})"
+        check_pass "Knowledge Base exists: ${KB_ID}"
 
-        # Check KB status
         STATUS=$(aws bedrock-agent get-knowledge-base --knowledge-base-id "${KB_ID}" \
             --region "${AWS_REGION}" --query 'knowledgeBase.status' --output text 2>/dev/null)
         if [ "$STATUS" = "ACTIVE" ]; then
@@ -204,19 +199,23 @@ validate_knowledge_base() {
             check_fail "Knowledge Base status: ${STATUS}"
         fi
     else
-        check_fail "Knowledge Base not found: ${KB_NAME}"
+        log_info "  No Knowledge Base deployed (optional — retrieval runs in mock mode)"
+        ((PASSED++))
     fi
 }
 
 validate_cloudwatch() {
     log_info "Validating CloudWatch log groups..."
     
-    # Check log groups
+    # Derive deployment ID from the stack name
+    STACK_DEPLOY_ID=$(echo "${STACK_NAME}" | awk -F- '{print $NF}')
+    
+    # Check log groups (include DeploymentId in path)
     LOG_GROUPS=(
-        "/aws/${PROJECT_NAME}/${ENVIRONMENT}"
-        "/aws/${PROJECT_NAME}/${ENVIRONMENT}/evaluation"
-        "/aws/${PROJECT_NAME}/${ENVIRONMENT}/finetuning"
-        "/aws/${PROJECT_NAME}/${ENVIRONMENT}/trustscoring"
+        "/aws/${PROJECT_NAME}/${ENVIRONMENT}/${STACK_DEPLOY_ID}"
+        "/aws/${PROJECT_NAME}/${ENVIRONMENT}/${STACK_DEPLOY_ID}/evaluation"
+        "/aws/${PROJECT_NAME}/${ENVIRONMENT}/${STACK_DEPLOY_ID}/finetuning"
+        "/aws/${PROJECT_NAME}/${ENVIRONMENT}/${STACK_DEPLOY_ID}/trustscoring"
     )
     
     for LOG_GROUP in "${LOG_GROUPS[@]}"; do
@@ -231,20 +230,30 @@ validate_cloudwatch() {
 validate_iam_roles() {
     log_info "Validating IAM roles..."
     
-    # Check Lambda execution role
-    LAMBDA_ROLE="${PROJECT_NAME}-lambda-execution-${ENVIRONMENT}"
-    if aws iam get-role --role-name "${LAMBDA_ROLE}" 2>&1 > /dev/null; then
-        check_pass "Lambda execution role exists: ${LAMBDA_ROLE}"
+    # Check Lambda execution role (use stack output ARN)
+    LAMBDA_ROLE_ARN=$(get_output LambdaExecutionRoleArn)
+    if [ -n "${LAMBDA_ROLE_ARN}" ]; then
+        LAMBDA_ROLE=$(echo "${LAMBDA_ROLE_ARN}" | awk -F/ '{print $NF}')
+        if aws iam get-role --role-name "${LAMBDA_ROLE}" 2>&1 > /dev/null; then
+            check_pass "Lambda execution role exists: ${LAMBDA_ROLE}"
+        else
+            check_fail "Lambda execution role not found: ${LAMBDA_ROLE}"
+        fi
     else
-        check_fail "Lambda execution role not found: ${LAMBDA_ROLE}"
+        check_fail "Lambda role ARN not found in stack outputs"
     fi
     
     # Check Step Functions execution role
-    SF_ROLE="${PROJECT_NAME}-stepfunctions-${ENVIRONMENT}"
-    if aws iam get-role --role-name "${SF_ROLE}" 2>&1 > /dev/null; then
-        check_pass "Step Functions execution role exists: ${SF_ROLE}"
+    SF_ROLE_ARN=$(get_output StepFunctionsExecutionRoleArn)
+    if [ -n "${SF_ROLE_ARN}" ]; then
+        SF_ROLE=$(echo "${SF_ROLE_ARN}" | awk -F/ '{print $NF}')
+        if aws iam get-role --role-name "${SF_ROLE}" 2>&1 > /dev/null; then
+            check_pass "Step Functions execution role exists: ${SF_ROLE}"
+        else
+            check_fail "Step Functions execution role not found: ${SF_ROLE}"
+        fi
     else
-        check_fail "Step Functions execution role not found: ${SF_ROLE}"
+        check_fail "Step Functions role ARN not found in stack outputs"
     fi
 }
 

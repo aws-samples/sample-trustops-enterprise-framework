@@ -3,13 +3,18 @@
 import pytest
 import json
 from datetime import datetime
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 from src.orchestration.evaluation_orchestrator import EvaluationOrchestrator
 from src.data_models.model_response import (
     TrustScore,
     TrustScoreComponents
 )
 from src.data_models.hallucination import HallucinationAnalysis
+from src.data_models.trust_score import (
+    DimensionScore,
+    TrustDimension,
+    TrustScoreResult,
+)
 from src.data_models.results import (
     EvaluationResult,
     BaselineMetrics,
@@ -75,27 +80,32 @@ def mock_s3_storage():
 
 @pytest.fixture
 def mock_trust_scoring():
-    """Create mock trust scoring engine."""
+    """Create mock trust scoring engine using V2 interface."""
     engine = Mock()
-    engine.calculate_trust_score.return_value = TrustScore(
+    engine.score_response = AsyncMock(return_value=TrustScoreResult(
         overall_score=0.85,
-        components=TrustScoreComponents(
-            context_grounding=0.9,
-            output_structure=0.8,
-            uncertainty_indicators=0.85,
-            factual_consistency=0.9,
-            response_completeness=0.8
-        ),
-        confidence_level='high',
+        dimension_scores={
+            TrustDimension.ACCURACY: DimensionScore(
+                dimension=TrustDimension.ACCURACY, score=0.8, confidence=0.9,
+            ),
+            TrustDimension.CONSISTENCY: DimensionScore(
+                dimension=TrustDimension.CONSISTENCY, score=0.5, confidence=0.0,
+            ),
+            TrustDimension.SAFETY: DimensionScore(
+                dimension=TrustDimension.SAFETY, score=0.9, confidence=0.9,
+            ),
+            TrustDimension.BIAS: DimensionScore(
+                dimension=TrustDimension.BIAS, score=0.85, confidence=0.8,
+            ),
+            TrustDimension.CONTEXT_GROUNDING: DimensionScore(
+                dimension=TrustDimension.CONTEXT_GROUNDING, score=0.9, confidence=0.9,
+            ),
+        },
+        confidence_level=0.8,
         flagged_for_review=False,
-        explanation='Trust score 0.85: all components within acceptable range'
-    )
-    engine.detect_hallucinations.return_value = HallucinationAnalysis(
-        has_hallucinations=False,
-        hallucination_rate=0.0,
-        flagged_spans=[],
-        overall_grounding_score=0.9
-    )
+        explanation="Overall trust score: 0.85",
+        component_details=[],
+    ))
     return engine
 
 
@@ -236,23 +246,24 @@ def test_run_baseline_evaluation_calculates_trust_scores(
         workflow_id='test-workflow-123'
     )
 
-    # Should calculate trust score twice
-    assert mock_trust_scoring.calculate_trust_score.call_count == 2
+    # Should call score_response twice (via asyncio.run)
+    assert mock_trust_scoring.score_response.call_count == 2
 
 
 def test_run_baseline_evaluation_detects_hallucinations(
     orchestrator,
     mock_trust_scoring
 ):
-    """Test that hallucinations are detected for each response."""
+    """Test that hallucination analysis is derived from V2 score_response."""
     orchestrator.run_baseline_evaluation(
         model_id='test-model',
         dataset_s3_uri='s3://test-bucket/dataset.json',
         workflow_id='test-workflow-123'
     )
 
-    # Should detect hallucinations twice
-    assert mock_trust_scoring.detect_hallucinations.call_count == 2
+    # V2 integrates hallucination detection into score_response;
+    # the orchestrator adapts the result, so score_response is called twice.
+    assert mock_trust_scoring.score_response.call_count == 2
 
 
 def test_run_baseline_evaluation_aggregates_metrics(
@@ -418,20 +429,31 @@ def test_evaluation_result_includes_category(orchestrator):
 
 def test_evaluation_result_passed_flag(orchestrator, mock_trust_scoring):
     """Test that evaluation results have correct passed flag."""
-    # Set trust score below threshold
-    mock_trust_scoring.calculate_trust_score.return_value = TrustScore(
-        overall_score=0.5,  # Below 0.6 threshold
-        components=TrustScoreComponents(
-            context_grounding=0.5,
-            output_structure=0.5,
-            uncertainty_indicators=0.5,
-            factual_consistency=0.5,
-            response_completeness=0.5
-        ),
-        confidence_level='low',
+    # Set trust score below threshold via V2 score_response
+    mock_trust_scoring.score_response = AsyncMock(return_value=TrustScoreResult(
+        overall_score=0.5,
+        dimension_scores={
+            TrustDimension.ACCURACY: DimensionScore(
+                dimension=TrustDimension.ACCURACY, score=0.5, confidence=0.5,
+            ),
+            TrustDimension.CONSISTENCY: DimensionScore(
+                dimension=TrustDimension.CONSISTENCY, score=0.5, confidence=0.0,
+            ),
+            TrustDimension.SAFETY: DimensionScore(
+                dimension=TrustDimension.SAFETY, score=0.5, confidence=0.5,
+            ),
+            TrustDimension.BIAS: DimensionScore(
+                dimension=TrustDimension.BIAS, score=0.5, confidence=0.5,
+            ),
+            TrustDimension.CONTEXT_GROUNDING: DimensionScore(
+                dimension=TrustDimension.CONTEXT_GROUNDING, score=0.5, confidence=0.5,
+            ),
+        },
+        confidence_level=0.5,
         flagged_for_review=True,
-        explanation='Trust score 0.5: below threshold'
-    )
+        explanation="Overall trust score: 0.50. FLAGGED FOR REVIEW",
+        component_details=[],
+    ))
 
     result = orchestrator.run_baseline_evaluation(
         model_id='test-model',

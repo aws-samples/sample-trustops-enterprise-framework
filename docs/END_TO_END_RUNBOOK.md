@@ -74,15 +74,15 @@ TRUSTOPS_ARTIFACTS_BUCKET=trustops-artifacts-<YOUR_ACCOUNT_ID>-<REGION>
 
 # DynamoDB tables
 TRUSTOPS_MODELS_TABLE=trustops-models
-TRUSTOPS_DATASETS_TABLE=trustops-datasets-<YOUR_ACCOUNT_ID>-<REGION>
+# DynamoDB tables are auto-populated by deploy.sh
 TRUSTOPS_EVALUATIONS_TABLE=trustops-evaluations
-TRUSTOPS_FINETUNING_TABLE=trustops-finetuning
+# See infrastructure/env.example for the full list
 TRUSTOPS_WORKFLOWS_TABLE=trustops-workflows
 TRUSTOPS_RESULTS_TABLE=trustops-results-<YOUR_ACCOUNT_ID>-<REGION>
 
 # Default models
 DEFAULT_EMBEDDING_MODEL=amazon.titan-embed-text-v2:0
-DEFAULT_FOUNDATION_MODEL=anthropic.claude-v2
+DEFAULT_FOUNDATION_MODEL=amazon.nova-lite-v1:0
 ```
 
 ### Step 3: Deploy AWS Infrastructure
@@ -160,7 +160,7 @@ trustops models list --format json
 ### Get Model Details
 
 ```bash
-trustops models info --model-id anthropic.claude-3-haiku-20240307-v1:0
+trustops models info anthropic.claude-3-haiku-20240307-v1:0
 # Shows: provider, capabilities, pricing, status, fine-tuning support
 ```
 
@@ -229,7 +229,7 @@ trustops datasets list --format jsonl
 ### Analyze Dataset Quality
 
 ```bash
-trustops datasets analyze --dataset-id <dataset-id>
+trustops datasets analyze --dataset <dataset-id>
 # Returns: completeness score, diversity score, balance score,
 #          token statistics, issues, recommendations
 ```
@@ -237,14 +237,14 @@ trustops datasets analyze --dataset-id <dataset-id>
 ### Convert Format
 
 ```bash
-trustops datasets convert --dataset-id <dataset-id> --format parquet
-trustops datasets convert --dataset-id <dataset-id> --format csv
+trustops datasets convert --dataset <dataset-id> --format parquet
+trustops datasets convert --dataset <dataset-id> --format csv
 ```
 
 ### Split Dataset
 
 ```bash
-trustops datasets split --dataset-id <dataset-id> \
+trustops datasets split --dataset <dataset-id> \
   --train 0.8 --val 0.1 --test 0.1 \
   --stratify-by category
 ```
@@ -253,7 +253,7 @@ trustops datasets split --dataset-id <dataset-id> \
 
 ```bash
 # Detect PII (email, phone, SSN, credit card, IP)
-trustops datasets analyze --dataset-id <dataset-id> --pii
+trustops datasets analyze --dataset <dataset-id> --pii
 
 # Mask PII
 trustops datasets upload my_data.jsonl --name "Cleaned Data" --mask-pii
@@ -280,16 +280,16 @@ Baseline evaluation assesses a model's performance before any fine-tuning, estab
 
 ```bash
 trustops evaluate baseline \
-  --model-id anthropic.claude-3-haiku-20240307-v1:0 \
-  --dataset-id <dataset-id>
+  --model anthropic.claude-3-haiku-20240307-v1:0 \
+  --dataset <dataset-id>
 ```
 
 ### With Custom Configuration
 
 ```bash
 trustops evaluate baseline \
-  --model-id anthropic.claude-v2 \
-  --dataset-id <dataset-id> \
+  --model amazon.nova-lite-v1:0 \
+  --dataset <dataset-id> \
   --temperature 0.3 \
   --max-tokens 512 \
   --timeout 120
@@ -299,7 +299,7 @@ trustops evaluate baseline \
 
 ```bash
 trustops baseline \
-  --model-id anthropic.claude-v2 \
+  --model-id amazon.nova-lite-v1:0 \
   --dataset s3://your-bucket/eval-dataset.json
 ```
 
@@ -328,8 +328,8 @@ trustops models list --fine-tunable
 
 ```bash
 trustops finetune start \
-  --model-id amazon.titan-text-express-v1 \
-  --dataset-id <training-dataset-id> \
+  --model amazon.titan-text-express-v1 \
+  --dataset <training-dataset-id> \
   --job-name "customer-support-finetune-v1"
 ```
 
@@ -337,8 +337,8 @@ trustops finetune start \
 
 ```bash
 trustops finetune start \
-  --model-id amazon.titan-text-express-v1 \
-  --dataset-id <training-dataset-id> \
+  --model amazon.titan-text-express-v1 \
+  --dataset <training-dataset-id> \
   --job-name "custom-finetune" \
   --learning-rate 0.00005 \
   --epochs 5 \
@@ -349,14 +349,13 @@ trustops finetune start \
 
 ```bash
 # Check status
-trustops finetune status --job-id <job-id>
+trustops finetune status <job-id>
 
 # List all jobs
-trustops finetune list
-trustops finetune list --status training
+# trustops finetune status <job-id>  (check individual job status)
 
 # Stop a job
-trustops finetune stop --job-id <job-id>
+trustops finetune stop <job-id>
 ```
 
 ### Cost Estimation
@@ -379,16 +378,16 @@ Compare a baseline model against a fine-tuned model on identical prompts.
 
 ```bash
 trustops evaluate compare \
-  --baseline-model-id anthropic.claude-v2 \
-  --finetuned-model-id <finetuned-model-arn> \
-  --dataset-id <dataset-id>
+  --model-1 amazon.nova-lite-v1:0 \
+  --model-2 <finetuned-model-arn> \
+  --dataset <dataset-id>
 ```
 
 ### Using the Legacy Command
 
 ```bash
 trustops compare \
-  --baseline-model-id anthropic.claude-v2 \
+  --baseline-model-id amazon.nova-lite-v1:0 \
   --finetuned-model-id arn:aws:bedrock:us-east-1:123:model/... \
   --dataset s3://your-bucket/eval-dataset.json
 ```
@@ -399,7 +398,7 @@ trustops compare \
 - Improvement metrics: trust score delta, hallucination reduction, latency delta, cost delta
 - Statistical significance (p-value, confidence intervals)
 - Deployment recommendation: DEPLOY / ITERATE / REJECT
-  - DEPLOY: all thresholds met (trust improvement >= 5%, cost increase <= 20%, hallucination reduction >= 10%)
+  - DEPLOY: all thresholds met (trust improvement >= 10%, cost increase <= 20%, hallucination reduction >= 5%)
   - REJECT: trust score decreased or hallucination rate increased
   - ITERATE: otherwise
 - Cost-performance analysis (cost per trust score point, break-even volume)
@@ -471,7 +470,7 @@ Monthly savings at 100K queries: $20,000
 After a comparative evaluation completes:
 
 ```bash
-trustops results get --evaluation-id <eval-id> --format json
+trustops results get <eval-id> --format json
 ```
 
 The `improvement_metrics` object includes:
@@ -648,21 +647,21 @@ trustops status --list --type baseline --status-filter completed
 ### Retrieve Results
 
 ```bash
-trustops results get --evaluation-id <eval-id>
+trustops results get <eval-id>
 ```
 
 ### Compare Results
 
 ```bash
-trustops results compare --eval-id-1 <id1> --eval-id-2 <id2>
+trustops results compare <id1> <id2>
 ```
 
 ### Export Results
 
 ```bash
-trustops results export --evaluation-id <eval-id> --format json
-trustops results export --evaluation-id <eval-id> --format csv
-trustops results export --evaluation-id <eval-id> --format pdf
+trustops results export <eval-id> --format json
+trustops results export <eval-id> --format csv
+trustops results export <eval-id> --format pdf
 ```
 
 ### Storage Architecture
@@ -745,7 +744,7 @@ This walkthrough demonstrates the full evaluate → fine-tune → compare loop.
 
 ```bash
 trustops models list --provider bedrock
-trustops models info --model-id amazon.titan-text-express-v1
+trustops models info amazon.titan-text-express-v1
 ```
 
 ### Step 2: Upload Evaluation Dataset
@@ -760,23 +759,23 @@ trustops datasets upload demo/sample_data/qa_sample.jsonl \
 ### Step 3: Analyze Dataset Quality
 
 ```bash
-trustops datasets analyze --dataset-id <dataset-id>
+trustops datasets analyze --dataset <dataset-id>
 ```
 
 ### Step 4: Run Baseline Evaluation
 
 ```bash
 trustops evaluate baseline \
-  --model-id amazon.titan-text-express-v1 \
-  --dataset-id <dataset-id>
+  --model amazon.titan-text-express-v1 \
+  --dataset <dataset-id>
 # Note the evaluation-id from the output
 ```
 
 ### Step 5: Review Baseline Results
 
 ```bash
-trustops results get --evaluation-id <eval-id>
-trustops results export --evaluation-id <eval-id> --format json
+trustops results get <eval-id>
+trustops results export <eval-id> --format json
 ```
 
 ### Step 6: Prepare Training Data
@@ -792,34 +791,34 @@ trustops datasets upload training_data.jsonl \
 
 ```bash
 trustops finetune start \
-  --model-id amazon.titan-text-express-v1 \
-  --dataset-id <training-dataset-id> \
+  --model amazon.titan-text-express-v1 \
+  --dataset <training-dataset-id> \
   --job-name "qa-finetune-v1"
 
 # Monitor
-trustops finetune status --job-id <job-id>
+trustops finetune status <job-id>
 ```
 
 ### Step 8: Compare Baseline vs Fine-Tuned
 
 ```bash
 trustops evaluate compare \
-  --baseline-model-id amazon.titan-text-express-v1 \
-  --finetuned-model-id <finetuned-model-id> \
-  --dataset-id <dataset-id>
+  --model-1 amazon.titan-text-express-v1 \
+  --model-2 <finetuned-model-id> \
+  --dataset <dataset-id>
 ```
 
 ### Step 9: Review Comparison
 
 ```bash
-trustops results get --evaluation-id <comparison-eval-id>
+trustops results get <comparison-eval-id>
 # Check: trust score delta, hallucination reduction, deployment recommendation
 ```
 
 ### Step 10: Export Final Report
 
 ```bash
-trustops results export --evaluation-id <comparison-eval-id> --format json
+trustops results export <comparison-eval-id> --format json
 ```
 
 ---
@@ -866,7 +865,7 @@ trustops evaluate compare          # Comparative evaluation
 trustops finetune start            # Start fine-tuning
 trustops finetune status           # Job status
 trustops finetune stop             # Stop job
-trustops finetune list             # List jobs
+trustops finetune status <job-id>   # Check job status
 
 trustops workflows run             # Run workflow
 trustops workflows list            # List workflows

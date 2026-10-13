@@ -4,13 +4,18 @@ import pytest
 import json
 import hashlib
 from datetime import datetime
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from src.orchestration.evaluation_orchestrator import EvaluationOrchestrator
 from src.data_models.model_response import (
     TrustScore,
     TrustScoreComponents
 )
 from src.data_models.hallucination import HallucinationAnalysis
+from src.data_models.trust_score import (
+    DimensionScore,
+    TrustDimension,
+    TrustScoreResult,
+)
 from src.data_models.results import (
     EvaluationResult,
     BaselineMetrics,
@@ -77,27 +82,32 @@ def mock_s3_storage():
 
 @pytest.fixture
 def mock_trust_scoring():
-    """Create mock trust scoring engine."""
+    """Create mock trust scoring engine using V2 interface."""
     engine = Mock()
-    engine.calculate_trust_score.return_value = TrustScore(
+    engine.score_response = AsyncMock(return_value=TrustScoreResult(
         overall_score=0.85,
-        components=TrustScoreComponents(
-            context_grounding=0.9,
-            output_structure=0.8,
-            uncertainty_indicators=0.85,
-            factual_consistency=0.9,
-            response_completeness=0.8
-        ),
-        confidence_level='high',
+        dimension_scores={
+            TrustDimension.ACCURACY: DimensionScore(
+                dimension=TrustDimension.ACCURACY, score=0.8, confidence=0.9,
+            ),
+            TrustDimension.CONSISTENCY: DimensionScore(
+                dimension=TrustDimension.CONSISTENCY, score=0.5, confidence=0.0,
+            ),
+            TrustDimension.SAFETY: DimensionScore(
+                dimension=TrustDimension.SAFETY, score=0.9, confidence=0.9,
+            ),
+            TrustDimension.BIAS: DimensionScore(
+                dimension=TrustDimension.BIAS, score=0.85, confidence=0.8,
+            ),
+            TrustDimension.CONTEXT_GROUNDING: DimensionScore(
+                dimension=TrustDimension.CONTEXT_GROUNDING, score=0.9, confidence=0.9,
+            ),
+        },
+        confidence_level=0.8,
         flagged_for_review=False,
-        explanation='Trust score 0.85: all components within acceptable range'
-    )
-    engine.detect_hallucinations.return_value = HallucinationAnalysis(
-        has_hallucinations=False,
-        hallucination_rate=0.0,
-        flagged_spans=[],
-        overall_grounding_score=0.9
-    )
+        explanation="Overall trust score: 0.85",
+        component_details=[],
+    ))
     return engine
 
 
@@ -822,11 +832,8 @@ def test_run_foundation_model_comparison_uses_trust_scoring(
         workflow_id='test-workflow-123'
     )
     
-    # Should calculate trust score 4 times (2 examples × 2 models)
-    assert mock_trust_scoring.calculate_trust_score.call_count == 4
-    
-    # Should detect hallucinations 4 times
-    assert mock_trust_scoring.detect_hallucinations.call_count == 4
+    # Should call score_response 4 times (2 examples × 2 models)
+    assert mock_trust_scoring.score_response.call_count == 4
 
 
 # Test 17: Test integration with existing WorkflowManager

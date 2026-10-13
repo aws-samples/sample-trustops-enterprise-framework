@@ -1107,7 +1107,7 @@ def run_baseline_evaluation(
     Execute baseline evaluation for a foundation model.
     
     Args:
-        model_id: AWS Bedrock model identifier (e.g., "anthropic.claude-v2")
+        model_id: AWS Bedrock model identifier (e.g., "amazon.nova-lite-v1:0")
         dataset_s3_uri: S3 URI of evaluation dataset (e.g., "s3://bucket/dataset.json")
         workflow_id: Unique workflow identifier
         
@@ -1127,7 +1127,7 @@ from src.orchestration.evaluation_orchestrator import EvaluationOrchestrator
 
 orchestrator = EvaluationOrchestrator()
 result = orchestrator.run_baseline_evaluation(
-    model_id="anthropic.claude-v2",
+    model_id="amazon.nova-lite-v1:0",
     dataset_s3_uri="s3://trustops-datasets-<YOUR_ACCOUNT_ID>-<REGION>/eval-data.json",
     workflow_id="baseline-20240115-abc123"
 )
@@ -1311,7 +1311,7 @@ validation = orchestrator.validate_training_data(
 if validation.is_valid:
     # Start fine-tuning
     job = orchestrator.start_fine_tuning_job(
-        base_model_id="anthropic.claude-v2",
+        base_model_id="amazon.nova-lite-v1:0",
         training_data_s3_uri="s3://trustops-datasets-<YOUR_ACCOUNT_ID>-<REGION>/training-data.jsonl",
         job_name="finetune-20240115-xyz",
         hyperparameters={
@@ -1509,7 +1509,7 @@ manager = WorkflowManager()
 workflow_id = manager.create_workflow(
     workflow_type="baseline",
     configuration={
-        "model_id": "anthropic.claude-v2",
+        "model_id": "amazon.nova-lite-v1:0",
         "dataset_s3_uri": "s3://trustops-datasets-<YOUR_ACCOUNT_ID>-<REGION>/eval-data.json"
     }
 )
@@ -1688,8 +1688,8 @@ LAMBDA_TIMEOUT=900
 LAMBDA_MEMORY=3008
 
 # Model Configuration
-DEFAULT_EMBEDDING_MODEL=amazon.titan-embed-text-v1
-DEFAULT_FOUNDATION_MODEL=anthropic.claude-v2
+DEFAULT_EMBEDDING_MODEL=amazon.titan-embed-text-v2:0
+DEFAULT_FOUNDATION_MODEL=amazon.nova-lite-v1:0
 
 # Bedrock Fine-Tuning
 BEDROCK_EXECUTION_ROLE_ARN=arn:aws:iam::123456789012:role/BedrockExecutionRole
@@ -1732,7 +1732,7 @@ print(config.claude_v2_output_cost)
 | `HALLUCINATION_SIMILARITY_THRESHOLD` | 0.7 | Minimum similarity for grounding claims |
 | `LAMBDA_TIMEOUT` | 900 | Lambda function timeout in seconds |
 | `LAMBDA_MEMORY` | 3008 | Lambda function memory in MB |
-| `DEFAULT_FOUNDATION_MODEL` | anthropic.claude-v2 | Default model for evaluations |
+| `DEFAULT_FOUNDATION_MODEL` | amazon.nova-lite-v1:0 | Default model for evaluations |
 
 ### Adjusting Thresholds
 

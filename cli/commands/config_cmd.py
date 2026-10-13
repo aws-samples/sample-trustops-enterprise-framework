@@ -38,10 +38,38 @@ def config_cmd():
 def config_show(ctx, output_format):
     """Display current CLI configuration.
 
+    Shows the effective configuration by merging the CLI config file
+    (~/.trustops/config.json) with values from the .env file and
+    environment variables. Environment/dotenv values take precedence for
+    AWS resource names.
+
     Requirements: 10.19
     """
     config_path = ctx.obj.get("config_path", get_config_path())
     config = load_config(str(config_path))
+
+    # Overlay effective AWS resource names from the runtime config
+    # so the display matches what the tool actually uses.
+    # Only overlay resource names (buckets, tables), not region —
+    # region should stay as the user configured it in the CLI config.
+    try:
+        from config.aws_config import config as aws_cfg
+        aws_section = config.setdefault("aws", {})
+        try:
+            aws_section["datasets_bucket"] = aws_cfg.datasets_bucket
+        except Exception:
+            pass
+        try:
+            aws_section["results_bucket"] = aws_cfg.results_bucket
+        except Exception:
+            pass
+        try:
+            aws_section["artifacts_bucket"] = aws_cfg.artifacts_bucket
+        except Exception:
+            pass
+        aws_section["workflows_table"] = aws_cfg.workflows_table
+    except Exception:
+        pass
 
     result = {
         "config_path": str(config_path),

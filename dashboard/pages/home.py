@@ -87,12 +87,19 @@ def _load_home_data() -> dict[str, Any]:
         data["workflows"] = generate_demo_workflows()
         data["demo_mode"] = True
 
+    # Try loading real results from S3 if evaluations are empty/demo
+    if not data.get("evaluations") or data.get("demo_mode"):
+        from dashboard.utils.backend import list_s3_results, list_dynamodb_workflows
+        s3_results = list_s3_results()
+        if s3_results:
+            data["evaluations"] = s3_results
+            data["demo_mode"] = False
+        ddb_workflows = list_dynamodb_workflows()
+        if ddb_workflows:
+            data["workflows"] = ddb_workflows
+            data["demo_mode"] = False
+
     return data
-
-
-# ---------------------------------------------------------------------------
-# Metric helpers
-# ---------------------------------------------------------------------------
 
 def _count_by_status(items: list[dict], key: str = "status") -> dict[str, int]:
     """Count items grouped by a status field."""

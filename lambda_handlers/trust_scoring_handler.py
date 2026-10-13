@@ -1,10 +1,11 @@
 """
 AWS Lambda handler for trust score calculation.
 
-Receives scoring requests, delegates to the TrustScoringEngine,
+Receives scoring requests, delegates to the V2 TrustScoringEngine,
 and returns trust score results.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -21,7 +22,6 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         - response (str): Model-generated response text.
         - prompt (str): Original prompt.
         - source_documents (list[str], optional): Context documents.
-        - expected_schema (dict, optional): Expected output schema.
 
     Returns:
         dict with statusCode and JSON body containing trust score.
@@ -35,17 +35,17 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         if not response_text or not prompt:
             return _response(400, {"error": "response and prompt are required"})
 
-        from src.trust_scoring.trust_scoring_engine import TrustScoringEngine
+        from src.trust_scoring.trust_scoring_engine_v2 import TrustScoringEngine
 
         engine = TrustScoringEngine()
         source_documents = event.get("source_documents", [])
-        expected_schema = event.get("expected_schema")
 
-        result = engine.calculate_trust_score(
-            response=response_text,
-            prompt=prompt,
-            source_documents=source_documents,
-            expected_schema=expected_schema,
+        result = asyncio.run(
+            engine.score_response(
+                prompt=prompt,
+                response=response_text,
+                source_documents=source_documents,
+            )
         )
 
         return _response(200, {
@@ -53,12 +53,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             "confidence_level": result.confidence_level,
             "flagged_for_review": result.flagged_for_review,
             "explanation": result.explanation,
-            "components": {
-                "context_grounding": result.components.context_grounding,
-                "output_structure": result.components.output_structure,
-                "uncertainty_indicators": result.components.uncertainty_indicators,
-                "factual_consistency": result.components.factual_consistency,
-                "response_completeness": result.components.response_completeness,
+            "dimension_scores": {
+                dim.value: score.score
+                for dim, score in result.dimension_scores.items()
             },
         })
 

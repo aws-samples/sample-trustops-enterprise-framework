@@ -18,7 +18,7 @@ Before deploying TrustOps, ensure you have:
 
 - **AWS Account** with appropriate permissions
 - **AWS CLI** installed and configured (version 2.x or higher)
-- **Python 3.9+** installed
+- **Python 3.11+** installed
 - **Terraform** (optional, for infrastructure as code)
 - **Access to AWS Bedrock** (may require requesting access in some regions)
 

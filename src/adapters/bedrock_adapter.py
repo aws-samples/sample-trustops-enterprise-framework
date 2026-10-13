@@ -98,10 +98,7 @@ class BedrockAdapter(BaseModelAdapter):
     async def invoke_stream(
         self, request: InferenceRequest
     ) -> AsyncIterator[str]:
-        """Stream model response tokens as they are generated.
-
-        Note: This is a placeholder implementation. Full streaming support
-        requires using the Bedrock streaming API.
+        """Stream model response tokens using the Bedrock ConverseStream API.
 
         Args:
             request: The inference request containing prompt and parameters
@@ -110,17 +107,44 @@ class BedrockAdapter(BaseModelAdapter):
             str: Individual tokens or chunks of the generated response
 
         Raises:
-            NotImplementedError: Streaming is not yet fully implemented
+            RuntimeError: If streaming invocation fails
         """
-        # For now, fall back to non-streaming and yield the full response
-        response = await self.invoke(request)
-        yield response.text
+        try:
+            loop = asyncio.get_running_loop()
+
+            messages = [{"role": "user", "content": [{"text": request.prompt}]}]
+            inference_config = {
+                "maxTokens": request.max_tokens or 2048,
+                "temperature": request.temperature or 0.7,
+            }
+
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.client.bedrock_runtime.converse_stream(
+                    modelId=self.model_id,
+                    messages=messages,
+                    inferenceConfig=inference_config,
+                ),
+            )
+
+            stream = response.get("stream", [])
+            for event in stream:
+                if "contentBlockDelta" in event:
+                    delta = event["contentBlockDelta"].get("delta", {})
+                    text = delta.get("text", "")
+                    if text:
+                        yield text
+        except Exception as e:
+            # Fall back to non-streaming if stream API fails
+            response = await self.invoke(request)
+            yield response.text
 
     async def list_models(self) -> list[ModelMetadata]:
         """List all available Bedrock foundation models.
 
         Uses bedrock.list_foundation_models() to discover available models
-        in the configured region.
+        in the configured region. Builds metadata directly from the summary
+        response to avoid making a separate API call per model.
 
         Returns:
             List of ModelMetadata objects describing available models
@@ -141,56 +165,54 @@ class BedrockAdapter(BaseModelAdapter):
                 if not model_id:
                     continue
 
-                # Get detailed model configuration
-                try:
-                    config = await loop.run_in_executor(
-                        None,
-                        lambda mid=model_id: self.client.get_model_config(mid)
-                    )
-
-                    # Determine capabilities
-                    capabilities = [ModelCapability.TEXT_GENERATION]
-                    if 'CHAT' in model_summary.get('inferenceTypesSupported', []):
-                        capabilities.append(ModelCapability.CHAT)
-                    if model_summary.get('customizationsSupported'):
-                        capabilities.append(ModelCapability.FINE_TUNABLE)
-
-                    # Extract pricing
-                    pricing_data = config.get('pricing', {})
-                    pricing = ModelPricing(
-                        input_price_per_1k_tokens=pricing_data.get('input', 0.0),
-                        output_price_per_1k_tokens=pricing_data.get('output', 0.0),
-                        currency="USD"
-                    )
-
-                    # Create metadata
-                    metadata = ModelMetadata(
-                        id=model_id,
-                        provider=ModelProvider.BEDROCK,
-                        name=config.get('model_name', model_id),
-                        capabilities=capabilities,
-                        status=ModelStatus.ACTIVE,
-                        fine_tuning_support=bool(model_summary.get('customizationsSupported')),
-                        input_modalities=config.get('input_modalities', ['text']),
-                        output_modalities=config.get('output_modalities', ['text']),
-                        max_tokens=4096,  # Default, varies by model
-                        region=self.region,
-                        pricing=pricing,
-                        metadata={
-                            'provider_name': config.get('provider_name'),
-                            'model_arn': config.get('model_arn'),
-                            'response_streaming_supported': config.get('response_streaming_supported', False),
-                            'customizations_supported': config.get('customizations_supported', []),
-                            'inference_types_supported': config.get('inference_types_supported', []),
-                        }
-                    )
-
-                    models.append(metadata)
-
-                except Exception as e:
-                    # Log error but continue with other models
-                    print(f"Warning: Failed to get config for model {model_id}: {str(e)}")
+                # Skip non-text models (image-only, audio-only)
+                output_modalities = model_summary.get('outputModalities', [])
+                if 'TEXT' not in output_modalities:
                     continue
+
+                # Determine capabilities from summary (no per-model API call)
+                capabilities = [ModelCapability.TEXT_GENERATION]
+                inference_types = model_summary.get('inferenceTypesSupported', [])
+                if 'ON_DEMAND' in inference_types:
+                    capabilities.append(ModelCapability.CHAT)
+                customizations = model_summary.get('customizationsSupported', [])
+                if customizations:
+                    capabilities.append(ModelCapability.FINE_TUNABLE)
+
+                # Build metadata from the summary directly
+                model_name = model_summary.get('modelName', model_id)
+                provider_name = model_summary.get('providerName', '')
+                lifecycle = model_summary.get('modelLifecycle', {})
+                status_str = lifecycle.get('status', 'ACTIVE')
+                model_status = (
+                    ModelStatus.INACTIVE if status_str == 'LEGACY'
+                    else ModelStatus.ACTIVE
+                )
+
+                metadata = ModelMetadata(
+                    id=model_id,
+                    provider=ModelProvider.BEDROCK,
+                    name=model_name,
+                    capabilities=capabilities,
+                    status=model_status,
+                    fine_tuning_support=bool(customizations),
+                    input_modalities=model_summary.get('inputModalities', ['TEXT']),
+                    output_modalities=output_modalities,
+                    max_tokens=4096,
+                    region=self.region,
+                    metadata={
+                        'provider_name': provider_name,
+                        'model_arn': model_summary.get('modelArn', ''),
+                        'response_streaming_supported': model_summary.get(
+                            'responseStreamingSupported', False
+                        ),
+                        'customizations_supported': customizations,
+                        'inference_types_supported': inference_types,
+                        'lifecycle_status': status_str,
+                    }
+                )
+
+                models.append(metadata)
 
             return models
 
@@ -294,9 +316,9 @@ class BedrockAdapter(BaseModelAdapter):
         Returns:
             True if streaming is supported, False otherwise
         """
-        # Bedrock supports streaming for most models, but implementation
-        # is not complete yet
-        return False
+        # Streaming is implemented via invoke_stream() using the
+        # ConverseStream API with fallback to non-streaming on error
+        return True
 
     def supports_fine_tuning(self, model_id: str) -> bool:
         """Check if the specified Bedrock model supports fine-tuning.

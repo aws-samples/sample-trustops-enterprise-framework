@@ -6,10 +6,17 @@ YAML configuration files and apply it to model metadata.
 Requirements: 1.4, 1.14
 """
 
+import logging
 import os
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict
 import yaml
+
+
+logger = logging.getLogger(__name__)
+
+PRICING_STALENESS_DAYS = 90
 
 from src.data_models.model import ModelMetadata, ModelPricing, ModelProvider
 
@@ -61,6 +68,23 @@ class PricingLoader:
         
         with open(self.config_path, 'r') as f:
             self._pricing_data = yaml.safe_load(f)
+        
+        # Check if pricing data may be stale
+        try:
+            metadata = self._pricing_data.get("metadata", {})
+            last_updated_str = metadata.get("last_updated")
+            if last_updated_str:
+                last_updated = datetime.fromisoformat(str(last_updated_str))
+                if datetime.now() - last_updated > timedelta(days=PRICING_STALENESS_DAYS):
+                    logger.warning(
+                        "Model pricing data was last updated on %s. "
+                        "It may be stale (>%d days old). "
+                        "Consider refreshing from current AWS pricing.",
+                        last_updated_str,
+                        PRICING_STALENESS_DAYS,
+                    )
+        except Exception:
+            pass
         
         return self._pricing_data
     

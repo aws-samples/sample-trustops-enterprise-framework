@@ -9,6 +9,7 @@ Requirements: 2.1-2.19
 """
 
 import json
+import os
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -81,7 +82,10 @@ class DatasetManager:
         """
         self.region = region or config.region
         self.datasets_bucket = datasets_bucket or config.datasets_bucket
-        self.metadata_table = metadata_table or "trustops-dataset-metadata"
+        self.metadata_table = metadata_table or os.getenv(
+            "TRUSTOPS_DATASET_METADATA_TABLE",
+            config.dataset_versions_table,  # Fall back to versions table
+        )
         self.inference_client = inference_client
         self.max_dataset_size_bytes = int(max_dataset_size_gb * 1024 * 1024 * 1024)
 
@@ -759,7 +763,7 @@ class DatasetManager:
         try:
             response = self.dynamodb_client.get_item(
                 TableName=self.metadata_table,
-                Key={"dataset_id": {"S": dataset_id}},
+                Key={"dataset_id": {"S": dataset_id}, "version": {"N": "0"}},
             )
 
             if "Item" not in response:
@@ -1026,15 +1030,21 @@ class DatasetManager:
         max_retries=3, initial_delay=1.0, backoff_multiplier=2.0
     )
     def _store_metadata(self, metadata: DatasetMetadata) -> None:
-        """Store dataset metadata in DynamoDB."""
+        """Store dataset metadata in DynamoDB.
+        
+        When using the dataset-versions table (composite key: dataset_id + version),
+        metadata records use version=0 as a sentinel to distinguish them from
+        actual version entries.
+        """
         try:
             item = {
                 "dataset_id": {"S": metadata.id},
+                "version": {"N": "0"},
                 "name": {"S": metadata.name},
                 "description": {"S": metadata.description or ""},
                 "format": {"S": metadata.format.value},
                 "task_type": {"S": metadata.task_type.value},
-                "version": {"S": metadata.version},
+                "version_label": {"S": metadata.version},
                 "s3_uri": {"S": metadata.s3_uri},
                 "row_count": {"N": str(metadata.row_count)},
                 "created_at": {"S": metadata.created_at.isoformat()},

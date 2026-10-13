@@ -13,6 +13,14 @@ import json
 import sys
 from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
+
+# Load .env before any config module is imported.  find_dotenv() searches
+# upward from the current working directory so this works regardless of
+# where the trustops entry-point is invoked from.
+from dotenv import find_dotenv
+load_dotenv(find_dotenv(usecwd=True))
 from datetime import datetime
 
 from cli.commands.baseline import baseline
@@ -103,7 +111,7 @@ def configure(ctx, region, datasets_bucket, results_bucket,
             'hallucination_similarity_threshold': 0.7
         },
         'models': {
-            'default_embedding_model': 'amazon.titan-embed-text-v1',
+            'default_embedding_model': 'amazon.titan-embed-text-v2:0',
             'default_foundation_model': 'anthropic.claude-v2'
         }
     }

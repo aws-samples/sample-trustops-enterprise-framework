@@ -1,7 +1,10 @@
 """
 Trust Scoring Engine for calculating quantifiable trust scores for model outputs.
+
+DEPRECATED: Use trust_scoring_engine_v2.TrustScoringEngine instead.
 """
 import re
+import warnings
 from typing import List, Optional, Dict, Any
 from src.data_models.model_response import TrustScore, TrustScoreComponents, HallucinationAnalysis, HallucinationSpan
 from src.aws_clients.semantic_similarity_analyzer import SemanticSimilarityAnalyzer
@@ -10,6 +13,8 @@ from src.aws_clients.semantic_similarity_analyzer import SemanticSimilarityAnaly
 class TrustScoringEngine:
     """
     Calculate quantifiable trust scores for model outputs using multiple signals.
+
+    DEPRECATED: Use trust_scoring_engine_v2.TrustScoringEngine instead.
     
     Trust Score Components:
     - Context Grounding (30%): Semantic similarity with source documents
@@ -58,6 +63,12 @@ class TrustScoringEngine:
             similarity_analyzer: Semantic similarity analyzer instance
             review_threshold: Trust score threshold for flagging reviews (default: 0.6)
         """
+        warnings.warn(
+            "TrustScoringEngine in trust_scoring_engine.py is deprecated. "
+            "Use trust_scoring_engine_v2.TrustScoringEngine instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.similarity_analyzer = similarity_analyzer or SemanticSimilarityAnalyzer()
         self.review_threshold = review_threshold
     

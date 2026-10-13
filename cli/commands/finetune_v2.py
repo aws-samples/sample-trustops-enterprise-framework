@@ -113,6 +113,12 @@ def finetune_v2():
     help="Number of training examples (used for cost estimation)",
 )
 @click.option(
+    "--yes", "-y",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation prompt (for automation)",
+)
+@click.option(
     "--format",
     "output_format",
     type=click.Choice(["text", "json", "yaml"]),
@@ -120,7 +126,7 @@ def finetune_v2():
     help="Output format",
 )
 @click.pass_context
-def finetune_start(ctx, model, dataset, config_file, num_examples,
+def finetune_start(ctx, model, dataset, config_file, num_examples, yes,
                    output_format):
     """Start a fine-tuning job.
 
@@ -190,9 +196,58 @@ def finetune_start(ctx, model, dataset, config_file, num_examples,
             print_info(
                 f"  Confidence:    {estimate.confidence}"
             )
-            print_progress("Registering fine-tuning job...")
 
-        job = pipeline.start(config)
+        # --- User Consent Gate ---
+        # Fine-tuning costs money and takes hours. Never start automatically.
+        if output_format == "text" and not yes:
+            click.echo("")
+            if not click.confirm(
+                "Do you want to proceed with fine-tuning? "
+                "This will incur AWS charges.",
+                default=False,
+            ):
+                print_info("Fine-tuning cancelled.")
+                print_info("")
+                print_info("You can still compare foundation models without fine-tuning:")
+                print_info(f"  trustops foundation-compare \\")
+                print_info(f"    --model-id-1 {model} \\")
+                print_info(f"    --model-id-2 <other-model-id> \\")
+                print_info(f"    --dataset s3://<bucket>/eval-dataset.jsonl")
+                return
+
+            print_progress("Submitting fine-tuning job to AWS Bedrock...")
+
+        # Create Bedrock client and supply the required provider parameters
+        # so the pipeline actually submits the job to the Bedrock API.
+        import boto3
+        from config.aws_config import config as aws_cfg
+        session_kwargs = aws_cfg.get_boto3_session_kwargs()
+        bedrock_client = boto3.client("bedrock", **session_kwargs)
+        role_arn = aws_cfg.bedrock_execution_role_arn
+        output_s3_uri = f"s3://{aws_cfg.artifacts_bucket}/fine-tuning-output/"
+
+        if not role_arn:
+            # Try to get the role ARN from CloudFormation stack outputs
+            try:
+                cf = boto3.client("cloudformation", **session_kwargs)
+                paginator = cf.get_paginator("describe_stacks")
+                for page in paginator.paginate():
+                    for stack in page["Stacks"]:
+                        if stack["StackName"].startswith("trustops-") and "COMPLETE" in stack["StackStatus"]:
+                            for out in stack.get("Outputs", []):
+                                if out["OutputKey"] == "LambdaExecutionRoleArn":
+                                    role_arn = out["OutputValue"]
+                                    break
+                            break
+            except Exception:
+                pass
+
+        job = pipeline.start(
+            config,
+            provider_client=bedrock_client,
+            role_arn=role_arn or "",
+            output_s3_uri=output_s3_uri,
+        )
 
         result = _job_to_dict(job)
         result["cost_estimate"] = _cost_estimate_to_dict(estimate)

@@ -93,6 +93,21 @@ def _load_fine_tuning_data() -> dict[str, Any]:
         data["datasets"] = generate_demo_datasets()
         data["demo_mode"] = True
 
+    # Try loading real fine-tuning jobs from DynamoDB if still using demo data
+    if data.get("demo_mode"):
+        try:
+            import boto3
+            from config.aws_config import config
+            dynamodb = boto3.resource("dynamodb", **config.get_boto3_session_kwargs())
+            table = dynamodb.Table(config.fine_tuning_jobs_table)
+            response = table.scan(Limit=50)
+            items = response.get("Items", [])
+            if items:
+                data["jobs"] = items
+                data["demo_mode"] = False
+        except Exception:
+            pass
+
     return data
 
 
