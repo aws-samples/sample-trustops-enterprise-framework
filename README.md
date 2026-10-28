@@ -10,6 +10,8 @@ A trust-first fine-tuning and evaluation framework for enterprise GenAI using AW
 
 TrustOps provides quantifiable trust scoring, automated model comparison, hallucination detection, and cost-performance optimization visibility through auditable, repeatable evaluation workflows.
 
+<!-- Last reviewed: 2026-10-28 -->
+
 ## Features
 
 - **Baseline Model Evaluation**: Assess foundation model performance before fine-tuning
